@@ -1,3 +1,6 @@
+# Fork info
+zombiezen commit: e1ae1f982d9908a41db464f02861a850a0880a5a
+
 # Cap'n Proto bindings for Go
 
 [![GoDoc](https://godoc.org/github.com/iguazio/go-capnproto2?status.svg)][godoc]
