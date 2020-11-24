@@ -5,7 +5,7 @@ package schema
 import (
 	math "math"
 	strconv "strconv"
-	capnp "zombiezen.com/go/capnproto2"
+	capnp "github.com/iguazio/go-capnproto2"
 )
 
 // Constants defined in schema.capnp.

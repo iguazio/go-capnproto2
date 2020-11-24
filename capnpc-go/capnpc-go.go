@@ -21,13 +21,13 @@ import (
 	"strings"
 	"text/template"
 
-	"zombiezen.com/go/capnproto2"
-	"zombiezen.com/go/capnproto2/std/capnp/schema"
+	"github.com/iguazio/go-capnproto2"
+	"github.com/iguazio/go-capnproto2/std/capnp/schema"
 )
 
 // Non-stdlib import paths.
 const (
-	capnpImport   = "zombiezen.com/go/capnproto2"
+	capnpImport   = "github.com/iguazio/go-capnproto2"
 	serverImport  = capnpImport + "/server"
 	contextImport = "golang.org/x/net/context"
 )

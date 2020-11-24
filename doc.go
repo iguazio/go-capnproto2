@@ -21,9 +21,9 @@ from another package.  import should be the fully qualified import path
 and is used to generate import statement from other packages and to
 detect when two types are in the same package.  For example:
 
-	using Go = import "zombiezen.com/go/capnproto2/go.capnp";
+	using Go = import "github.com/iguazio/go-capnproto2/go.capnp";
 	$Go.package("main");
-	$Go.import("zombiezen.com/go/capnproto2/example");
+	$Go.import("github.com/iguazio/go-capnproto2/example");
 
 For adding documentation comments to the generated code, there's the doc
 annotation. This annotation adds the comment to a struct, enum or field so
@@ -377,4 +377,4 @@ A note about message ordering: when implementing a server method, you
 are responsible for acknowledging delivery of a method call.  Failure to
 do so can cause deadlocks.  See the server.Ack function for more details.
 */
-package capnp // import "zombiezen.com/go/capnproto2"
+package capnp // import "github.com/iguazio/go-capnproto2"

@@ -3,7 +3,7 @@ package rpctwoparty
 // AUTO GENERATED - DO NOT EDIT
 
 import (
-	capnp "zombiezen.com/go/capnproto2"
+	capnp "github.com/iguazio/go-capnproto2"
 )
 
 type Side uint16

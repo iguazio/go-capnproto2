@@ -7,8 +7,8 @@ import (
 	"net"
 
 	"golang.org/x/net/context"
-	"zombiezen.com/go/capnproto2/internal/demo/hashes"
-	"zombiezen.com/go/capnproto2/rpc"
+	"github.com/iguazio/go-capnproto2/internal/demo/hashes"
+	"github.com/iguazio/go-capnproto2/rpc"
 )
 
 // hashFactory is a local implementation of HashFactory.
