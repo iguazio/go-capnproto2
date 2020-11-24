@@ -1,9 +1,6 @@
 language: go
-go_import_path: github.com/iguazio/go-capnproto2
+go_import_path: zombiezen.com/go/capnproto2
 go:
-- 1.x
-install: _travis/install.bash
-script: _travis/build.bash
-env:
-- USE_BAZEL=0
-- USE_BAZEL=1
+- 1.4.3
+- 1.5.3
+- 1.6.2

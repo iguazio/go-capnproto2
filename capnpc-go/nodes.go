@@ -5,15 +5,15 @@ import (
 	"fmt"
 	"strings"
 
-	"github.com/iguazio/go-capnproto2"
-	"github.com/iguazio/go-capnproto2/internal/schema"
+	"zombiezen.com/go/capnproto2"
+	"zombiezen.com/go/capnproto2/std/capnp/schema"
 )
 
 type node struct {
 	schema.Node
 	pkg   string
 	imp   string
-	nodes []*node // only for file nodes
+	nodes []*node
 	Name  string
 }
 
@@ -259,7 +259,10 @@ func resolveName(nodes nodeMap, n *node, base, name string, file *node) error {
 	}
 	n.pkg = file.pkg
 	n.imp = file.imp
-	file.nodes = append(file.nodes, n)
+
+	if n.Which() != schema.Node_Which_structNode || !n.StructNode().IsGroup() {
+		file.nodes = append(file.nodes, n)
+	}
 
 	nnodes, err := n.NestedNodes()
 	if err != nil {

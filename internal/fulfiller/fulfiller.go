@@ -6,8 +6,8 @@ import (
 	"errors"
 	"sync"
 
-	"github.com/iguazio/go-capnproto2"
-	"github.com/iguazio/go-capnproto2/internal/queue"
+	"zombiezen.com/go/capnproto2"
+	"zombiezen.com/go/capnproto2/internal/queue"
 )
 
 // callQueueSize is the maximum number of pending calls.
@@ -178,49 +178,53 @@ type pcall struct {
 	ecall
 }
 
-// EmbargoClient is a client that flushes a queue of calls.
-// Fulfiller will create these automatically when pipelined calls are
-// made on unresolved answers.  EmbargoClient is exported so that rpc
-// can avoid making calls on its own Conn.
-type EmbargoClient struct {
+// embargoClient is a client that flushes a queue of calls.
+type embargoClient struct {
 	client capnp.Client
 
-	mu    sync.RWMutex
-	q     queue.Queue
-	calls ecallList
+	mu sync.RWMutex
+	q  queue.Queue
 }
 
 func newEmbargoClient(client capnp.Client, queue []ecall) capnp.Client {
-	ec := &EmbargoClient{
-		client: client,
-		calls:  make(ecallList, callQueueSize),
-	}
-	ec.q.Init(ec.calls, copy(ec.calls, queue))
+	ec := &embargoClient{client: client}
+	qq := make(ecallList, callQueueSize)
+	n := copy(qq, queue)
+	ec.q.Init(qq, n)
 	go ec.flushQueue()
 	return ec
 }
 
-func (ec *EmbargoClient) push(cl *capnp.Call) capnp.Answer {
+func (ec *embargoClient) push(cl *capnp.Call) capnp.Answer {
 	f := new(Fulfiller)
 	cl, err := cl.Copy(nil)
 	if err != nil {
 		return capnp.ErrorAnswer(err)
 	}
-	i := ec.q.Push()
-	if i == -1 {
+	if ok := ec.q.Push(ecall{cl, f}); !ok {
 		return capnp.ErrorAnswer(errCallQueueFull)
 	}
-	ec.calls[i] = ecall{cl, f}
 	return f
 }
 
-// flushQueue is run in its own goroutine.
-func (ec *EmbargoClient) flushQueue() {
-	var c ecall
-	ec.mu.Lock()
-	if i := ec.q.Front(); i != -1 {
-		c = ec.calls[i]
+func (ec *embargoClient) peek() ecall {
+	if ec.q.Len() == 0 {
+		return ecall{}
 	}
+	return ec.q.Peek().(ecall)
+}
+
+func (ec *embargoClient) pop() ecall {
+	if ec.q.Len() == 0 {
+		return ecall{}
+	}
+	return ec.q.Pop().(ecall)
+}
+
+// flushQueue is run in its own goroutine.
+func (ec *embargoClient) flushQueue() {
+	ec.mu.Lock()
+	c := ec.peek()
 	ec.mu.Unlock()
 	for c.call != nil {
 		ans := ec.client.Call(c.call)
@@ -233,19 +237,13 @@ func (ec *EmbargoClient) flushQueue() {
 			}
 		}(c.f, ans)
 		ec.mu.Lock()
-		ec.q.Pop()
-		if i := ec.q.Front(); i != -1 {
-			c = ec.calls[i]
-		} else {
-			c = ecall{}
-		}
+		ec.pop()
+		c = ec.peek()
 		ec.mu.Unlock()
 	}
 }
 
-// Client returns the underlying client if the embargo has been lifted
-// and nil otherwise.
-func (ec *EmbargoClient) Client() capnp.Client {
+func (ec *embargoClient) WrappedClient() capnp.Client {
 	ec.mu.RLock()
 	ok := ec.isPassthrough()
 	ec.mu.RUnlock()
@@ -255,13 +253,11 @@ func (ec *EmbargoClient) Client() capnp.Client {
 	return ec.client
 }
 
-func (ec *EmbargoClient) isPassthrough() bool {
+func (ec *embargoClient) isPassthrough() bool {
 	return ec.q.Len() == 0
 }
 
-// Call either queues a call to the underlying client or starts a call
-// if the embargo has been lifted.
-func (ec *EmbargoClient) Call(cl *capnp.Call) capnp.Answer {
+func (ec *embargoClient) Call(cl *capnp.Call) capnp.Answer {
 	// Fast path: queue is flushed.
 	ec.mu.RLock()
 	ok := ec.isPassthrough()
@@ -282,26 +278,12 @@ func (ec *EmbargoClient) Call(cl *capnp.Call) capnp.Answer {
 	return ans
 }
 
-// TryQueue will attempt to queue a call or return nil if the embargo
-// has been lifted.
-func (ec *EmbargoClient) TryQueue(cl *capnp.Call) capnp.Answer {
-	ec.mu.Lock()
-	if ec.isPassthrough() {
-		ec.mu.Unlock()
-		return nil
-	}
-	ans := ec.push(cl)
-	ec.mu.Unlock()
-	return ans
-}
-
-// Close closes the underlying client, rejecting any queued calls.
-func (ec *EmbargoClient) Close() error {
+func (ec *embargoClient) Close() error {
 	ec.mu.Lock()
 	// reject all queued calls
 	for ec.q.Len() > 0 {
-		ec.calls[ec.q.Front()].f.Reject(errQueueCallCancel)
-		ec.q.Pop()
+		c := ec.pop()
+		c.f.Reject(errQueueCallCancel)
 	}
 	ec.mu.Unlock()
 	return ec.client.Close()
@@ -319,8 +301,16 @@ func (el ecallList) Len() int {
 	return len(el)
 }
 
-func (el ecallList) Clear(i int) {
-	el[i] = ecall{}
+func (el ecallList) At(i int) interface{} {
+	return el[i]
+}
+
+func (el ecallList) Set(i int, x interface{}) {
+	if x == nil {
+		el[i] = ecall{}
+	} else {
+		el[i] = x.(ecall)
+	}
 }
 
 var (

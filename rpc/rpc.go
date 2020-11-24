@@ -1,54 +1,40 @@
 // Package rpc implements the Cap'n Proto RPC protocol.
-package rpc // import "github.com/iguazio/go-capnproto2/rpc"
+package rpc // import "zombiezen.com/go/capnproto2/rpc"
 
 import (
 	"fmt"
-	"io"
-	"sync"
+	"log"
 
 	"golang.org/x/net/context"
-	"github.com/iguazio/go-capnproto2"
-	"github.com/iguazio/go-capnproto2/rpc/internal/refcount"
-	rpccapnp "github.com/iguazio/go-capnproto2/std/capnp/rpc"
+	"zombiezen.com/go/capnproto2"
+	rpccapnp "zombiezen.com/go/capnproto2/std/capnp/rpc"
 )
 
 // A Conn is a connection to another Cap'n Proto vat.
 // It is safe to use from multiple goroutines.
 type Conn struct {
-	transport  Transport
-	log        Logger
-	mainFunc   func(context.Context) (capnp.Client, error)
-	mainCloser io.Closer
-	death      chan struct{} // closed after state is connDead
+	transport Transport
+	main      capnp.Client
 
-	out chan rpccapnp.Message
+	manager     manager
+	in          <-chan rpccapnp.Message
+	out         chan<- rpccapnp.Message
+	calls       chan *appCall
+	cancels     <-chan *question
+	releases    chan *outgoingRelease
+	returns     <-chan *outgoingReturn
+	queueCloses <-chan queueClientClose
 
-	bg       context.Context
-	bgCancel context.CancelFunc
-	workers  sync.WaitGroup
-
-	// Mutable state protected by stateMu
-	// If you need to acquire both mu and stateMu, acquire mu first.
-	stateMu  sync.RWMutex
-	state    connState
-	closeErr error
-
-	// Mutable state protected by mu
-	mu         chanMutex
-	questions  []*question
-	questionID idgen
-	exports    []*export
-	exportID   idgen
-	embargoes  []chan<- struct{}
-	embargoID  idgen
-	answers    map[answerID]*answer
-	imports    map[importID]*impent
+	// Mutable state. Only accessed from coordinate goroutine.
+	questions questionTable
+	answers   answerTable
+	imports   importTable
+	exports   exportTable
+	embargoes embargoTable
 }
 
 type connParams struct {
-	log            Logger
-	mainFunc       func(context.Context) (capnp.Client, error)
-	mainCloser     io.Closer
+	main           capnp.Client
 	sendBufferSize int
 }
 
@@ -59,24 +45,10 @@ type ConnOption struct {
 
 // MainInterface specifies that the connection should use client when
 // receiving bootstrap messages.  By default, all bootstrap messages will
-// fail.  The client will be closed when the connection is closed.
+// fail.
 func MainInterface(client capnp.Client) ConnOption {
-	rc, ref1 := refcount.New(client)
-	ref2 := rc.Ref()
 	return ConnOption{func(c *connParams) {
-		c.mainFunc = func(ctx context.Context) (capnp.Client, error) {
-			return ref1, nil
-		}
-		c.mainCloser = ref2
-	}}
-}
-
-// BootstrapFunc specifies the function to call to create a capability
-// for handling bootstrap messages.  This function should not make any
-// RPCs or block.
-func BootstrapFunc(f func(context.Context) (capnp.Client, error)) ConnOption {
-	return ConnOption{func(c *connParams) {
-		c.mainFunc = f
+		c.main = client
 	}}
 }
 
@@ -92,314 +64,189 @@ func SendBufferSize(numMsgs int) ConnOption {
 // NewConn creates a new connection that communicates on c.
 // Closing the connection will cause c to be closed.
 func NewConn(t Transport, options ...ConnOption) *Conn {
+	conn := &Conn{transport: t}
 	p := &connParams{
-		log:            defaultLogger{},
 		sendBufferSize: 4,
 	}
+	conn.manager.init()
 	for _, o := range options {
 		o.f(p)
 	}
+	conn.main = p.main
+	i := make(chan rpccapnp.Message)
+	o := make(chan rpccapnp.Message, p.sendBufferSize)
+	calls := make(chan *appCall)
+	cancels := make(chan *question)
+	rets := make(chan *outgoingReturn)
+	queueCloses := make(chan queueClientClose)
+	releases := make(chan *outgoingRelease)
+	conn.in, conn.out = i, o
+	conn.calls = calls
+	conn.cancels = cancels
+	conn.releases = releases
+	conn.returns = rets
+	conn.queueCloses = queueCloses
+	conn.questions.manager = &conn.manager
+	conn.questions.calls = calls
+	conn.questions.cancels = cancels
+	conn.answers.manager = &conn.manager
+	conn.answers.out = o
+	conn.answers.returns = rets
+	conn.answers.queueCloses = queueCloses
+	conn.imports.manager = &conn.manager
+	conn.imports.calls = calls
+	conn.imports.releases = releases
 
-	conn := &Conn{
-		transport:  t,
-		out:        make(chan rpccapnp.Message, p.sendBufferSize),
-		mainFunc:   p.mainFunc,
-		mainCloser: p.mainCloser,
-		log:        p.log,
-		death:      make(chan struct{}),
-		mu:         newChanMutex(),
-	}
-	conn.bg, conn.bgCancel = context.WithCancel(context.Background())
-	conn.workers.Add(2)
-	go conn.dispatchRecv()
-	go conn.dispatchSend()
+	conn.manager.do(conn.coordinate)
+	conn.manager.do(func() {
+		dispatchRecv(&conn.manager, t, i)
+	})
+	conn.manager.do(func() {
+		dispatchSend(&conn.manager, t, o)
+	})
 	return conn
 }
 
 // Wait waits until the connection is closed or aborted by the remote vat.
 // Wait will always return an error, usually ErrConnClosed or of type Abort.
 func (c *Conn) Wait() error {
-	<-c.Done()
-	return c.Err()
+	<-c.manager.finish
+	return c.manager.err()
 }
 
-// Done is a channel that is closed once the connection is fully shut down.
-func (c *Conn) Done() <-chan struct{} {
-	return c.death
-}
-
-// Err returns the error that caused the connection to close.
-// Err returns nil before Done is closed.
-func (c *Conn) Err() error {
-	c.stateMu.RLock()
-	var err error
-	if c.state != connDead {
-		err = c.closeErr
-	}
-	c.stateMu.RUnlock()
-	return err
-}
-
-// Close closes the connection and the underlying transport.
+// Close closes the connection.
 func (c *Conn) Close() error {
-	c.stateMu.Lock()
-	alive := c.state == connAlive
-	if alive {
-		c.bgCancel()
-		c.closeErr = ErrConnClosed
-		c.state = connDying
-	}
-	c.stateMu.Unlock()
-	if !alive {
+	// Stop helper goroutines.
+	if !c.manager.shutdown(ErrConnClosed) {
 		return ErrConnClosed
 	}
-	c.teardown(newAbortMessage(nil, errShutdown))
-	c.stateMu.RLock()
-	err := c.closeErr
-	c.stateMu.RUnlock()
-	if err != ErrConnClosed {
-		return err
+	// Hang up.
+	// TODO(light): add timeout to write.
+	ctx := context.Background()
+	n := newAbortMessage(nil, errShutdown)
+	werr := c.transport.SendMessage(ctx, n)
+	cerr := c.transport.Close()
+	if werr != nil {
+		return werr
+	}
+	if cerr != nil {
+		return cerr
 	}
 	return nil
 }
 
-// shutdown cancels the background context and sets closeErr to e.
-// No abort message will be sent on the transport.  After shutdown
-// returns, the Conn will be in the dying or dead state.  Calling
-// shutdown on a dying or dead Conn is a no-op.
-func (c *Conn) shutdown(e error) {
-	c.stateMu.Lock()
-	if c.state == connAlive {
-		c.bgCancel()
-		c.closeErr = e
-		c.state = connDying
-		go c.teardown(rpccapnp.Message{})
-	}
-	c.stateMu.Unlock()
-}
-
-// abort cancels the background context, sets closeErr to e, and queues
-// an abort message to be sent on the transport before the Conn goes
-// into the dead state.  After abort returns, the Conn will be in the
-// dying or dead state.  Calling abort on a dying or dead Conn is a
-// no-op.
-func (c *Conn) abort(e error) {
-	c.stateMu.Lock()
-	if c.state == connAlive {
-		c.bgCancel()
-		c.closeErr = e
-		c.state = connDying
-		go c.teardown(newAbortMessage(nil, e))
-	}
-	c.stateMu.Unlock()
-}
-
-// startWork adds a new worker if c is not dying or dead.
-// Otherwise, it returns the close error.
-// The caller is responsible for calling c.workers.Done().
-// The caller must not be holding onto c.stateMu.
-func (c *Conn) startWork() error {
-	var err error
-	c.stateMu.RLock()
-	if c.state == connAlive {
-		c.workers.Add(1)
-	} else {
-		err = c.closeErr
-	}
-	c.stateMu.RUnlock()
-	return err
-}
-
-// teardown moves the connection from the dying to the dead state.
-func (c *Conn) teardown(abort rpccapnp.Message) {
-	c.workers.Wait()
-
-	c.mu.Lock()
-	for _, q := range c.questions {
-		if q != nil {
-			q.cancel(ErrConnClosed)
+// coordinate runs in its own goroutine.
+// It manages dispatching received messages and calls.
+func (c *Conn) coordinate() {
+	for {
+		select {
+		case m := <-c.in:
+			c.handleMessage(m)
+		case ac := <-c.calls:
+			ans, err := c.handleCall(ac)
+			if err == nil {
+				ac.achan <- ans
+			} else {
+				log.Println("rpc: failed to handle call:", err)
+				ac.achan <- capnp.ErrorAnswer(err)
+			}
+		case q := <-c.cancels:
+			c.handleCancel(q)
+		case r := <-c.releases:
+			r.echan <- c.handleRelease(r.id)
+		case r := <-c.returns:
+			c.handleReturn(r)
+		case qcc := <-c.queueCloses:
+			c.handleQueueClose(qcc)
+		case <-c.manager.finish:
+			return
 		}
 	}
-	c.questions = nil
-	exps := c.exports
-	c.exports = nil
-	c.embargoes = nil
-	for _, a := range c.answers {
-		a.cancel()
-	}
-	c.answers = nil
-	c.imports = nil
-	c.mainFunc = nil
-	c.mu.Unlock()
-
-	if c.mainCloser != nil {
-		if err := c.mainCloser.Close(); err != nil {
-			c.errorf("closing main interface: %v", err)
-		}
-		c.mainCloser = nil
-	}
-	// Closing an export may try to lock the Conn, so run it outside
-	// critical section.
-	for id, e := range exps {
-		if e == nil {
-			continue
-		}
-		if err := e.client.Close(); err != nil {
-			c.errorf("export %v close: %v", id, err)
-		}
-	}
-	exps = nil
-
-	var werr error
-	if abort.IsValid() {
-		werr = c.transport.SendMessage(context.Background(), abort)
-	}
-	cerr := c.transport.Close()
-
-	c.stateMu.Lock()
-	if c.closeErr == ErrConnClosed {
-		if cerr != nil {
-			c.closeErr = cerr
-		} else if werr != nil {
-			c.closeErr = werr
-		}
-	}
-	c.state = connDead
-	close(c.death)
-	c.stateMu.Unlock()
 }
 
 // Bootstrap returns the receiver's main interface.
 func (c *Conn) Bootstrap(ctx context.Context) capnp.Client {
 	// TODO(light): Create a client that returns immediately.
+	ac, achan := newAppBootstrapCall(ctx)
 	select {
-	case <-c.mu:
-		// Locked.
-		defer c.mu.Unlock()
-		if err := c.startWork(); err != nil {
-			return capnp.ErrorClient(err)
+	case c.calls <- ac:
+		select {
+		case a := <-achan:
+			return capnp.NewPipeline(a).Client()
+		case <-ctx.Done():
+			return capnp.ErrorClient(ctx.Err())
+		case <-c.manager.finish:
+			return capnp.ErrorClient(c.manager.err())
 		}
-		defer c.workers.Done()
 	case <-ctx.Done():
 		return capnp.ErrorClient(ctx.Err())
-	case <-c.bg.Done():
-		return capnp.ErrorClient(ErrConnClosed)
-	}
-
-	q := c.newQuestion(ctx, nil /* method */)
-	msg := newMessage(nil)
-	boot, _ := msg.NewBootstrap()
-	boot.SetQuestionId(uint32(q.id))
-	// The mutex must be held while sending so that call order is preserved.
-	// Worst case, this blocks until a message is sent on the transport.
-	// Common case, this just adds to the channel queue.
-	select {
-	case c.out <- msg:
-		q.start()
-		return capnp.NewPipeline(q).Client()
-	case <-ctx.Done():
-		c.popQuestion(q.id)
-		return capnp.ErrorClient(ctx.Err())
-	case <-c.bg.Done():
-		c.popQuestion(q.id)
-		return capnp.ErrorClient(ErrConnClosed)
+	case <-c.manager.finish:
+		return capnp.ErrorClient(c.manager.err())
 	}
 }
 
-// handleMessage is run from the receive goroutine to process a single
-// message.  m cannot be held onto past the return of handleMessage, and
-// c.mu is not held at the start of handleMessage.
+// handleMessage is run in the coordinate goroutine.
 func (c *Conn) handleMessage(m rpccapnp.Message) {
 	switch m.Which() {
 	case rpccapnp.Message_Which_unimplemented:
 		// no-op for now to avoid feedback loop
 	case rpccapnp.Message_Which_abort:
-		a, err := copyAbort(m)
+		ma, err := m.Abort()
 		if err != nil {
-			c.errorf("decode abort: %v", err)
+			log.Println("rpc: decode abort:", err)
 			// Keep going, since we're trying to abort anyway.
 		}
-		c.infof("abort: %v", a)
-		c.shutdown(a)
+		a := Abort{ma}
+		log.Print(a)
+		c.manager.shutdown(a)
 	case rpccapnp.Message_Which_return:
-		m = copyRPCMessage(m)
-		c.mu.Lock()
-		err := c.handleReturnMessage(m)
-		c.mu.Unlock()
-
-		if err != nil {
-			c.errorf("handle return: %v", err)
+		if err := c.handleReturnMessage(m); err != nil {
+			log.Println("rpc: handle return:", err)
 		}
 	case rpccapnp.Message_Which_finish:
+		// TODO(light): what if answers never had this ID?
+		// TODO(light): return if cancelled
 		mfin, err := m.Finish()
 		if err != nil {
-			c.errorf("decode finish: %v", err)
+			log.Println("rpc: decode finish:", err)
 			return
 		}
 		id := answerID(mfin.QuestionId())
-
-		c.mu.Lock()
-		a := c.popAnswer(id)
-		if a == nil {
-			c.mu.Unlock()
-			c.errorf("finish called for unknown answer %d", id)
-			return
-		}
+		a := c.answers.pop(id)
 		a.cancel()
 		if mfin.ReleaseResultCaps() {
-			for _, id := range a.resultCaps {
-				c.releaseExport(id, 1)
-			}
+			c.exports.releaseList(a.resultCaps)
 		}
-		c.mu.Unlock()
 	case rpccapnp.Message_Which_bootstrap:
 		boot, err := m.Bootstrap()
 		if err != nil {
-			c.errorf("decode bootstrap: %v", err)
+			log.Println("rpc: decode bootstrap:", err)
 			return
 		}
 		id := answerID(boot.QuestionId())
-
-		c.mu.Lock()
-		err = c.handleBootstrapMessage(id)
-		c.mu.Unlock()
-
-		if err != nil {
-			c.errorf("handle bootstrap: %v", err)
+		if err := c.handleBootstrapMessage(id); err != nil {
+			log.Println("rpc: handle bootstrap:", err)
 		}
 	case rpccapnp.Message_Which_call:
-		m = copyRPCMessage(m)
-		c.mu.Lock()
-		err := c.handleCallMessage(m)
-		c.mu.Unlock()
-
-		if err != nil {
-			c.errorf("handle call: %v", err)
+		if err := c.handleCallMessage(m); err != nil {
+			log.Println("rpc: handle call:", err)
 		}
 	case rpccapnp.Message_Which_release:
 		rel, err := m.Release()
 		if err != nil {
-			c.errorf("decode release: %v", err)
+			log.Println("rpc: decode release:", err)
 			return
 		}
 		id := exportID(rel.Id())
 		refs := int(rel.ReferenceCount())
-
-		c.mu.Lock()
-		c.releaseExport(id, refs)
-		c.mu.Unlock()
+		c.exports.release(id, refs)
 	case rpccapnp.Message_Which_disembargo:
-		m = copyRPCMessage(m)
-		c.mu.Lock()
-		err := c.handleDisembargoMessage(m)
-		c.mu.Unlock()
-
-		if err != nil {
+		if err := c.handleDisembargoMessage(m); err != nil {
 			// Any failure in a disembargo is a protocol violation.
 			c.abort(err)
 		}
 	default:
-		c.infof("received unimplemented message, which = %v", m.Which())
+		log.Printf("rpc: received unimplemented message, which = %v", m.Which())
 		um := newUnimplementedMessage(nil, m)
 		c.sendMessage(um)
 	}
@@ -411,22 +258,89 @@ func newUnimplementedMessage(buf []byte, m rpccapnp.Message) rpccapnp.Message {
 	return n
 }
 
-func (c *Conn) fillParams(payload rpccapnp.Payload, cl *capnp.Call) error {
-	params, err := cl.PlaceParams(payload.Segment())
+// handleCall is run from the coordinate goroutine to send a question to a remote vat.
+func (c *Conn) handleCall(ac *appCall) (capnp.Answer, error) {
+	if ac.kind == appPipelineCall && c.questions.get(ac.question.id) != ac.question {
+		// Question has been finished.  The call should happen as if it is
+		// back in application code.
+		_, obj, err, done := ac.question.peek()
+		if !done {
+			panic("question popped but not done")
+		}
+		client := clientFromResolution(ac.transform, obj, err)
+		return c.nestedCall(client, ac.Call), nil
+	}
+	q := c.questions.new(ac.Ctx, &ac.Method)
+	if ac.kind == appPipelineCall {
+		pq := c.questions.get(ac.question.id)
+		pq.addPromise(ac.transform)
+	}
+	msg, err := c.newCallMessage(nil, q.id, ac)
 	if err != nil {
-		return err
+		return nil, err
+	}
+	select {
+	case c.out <- msg:
+		q.start()
+		return q, nil
+	case <-ac.Ctx.Done():
+		c.questions.pop(q.id)
+		return nil, ac.Ctx.Err()
+	case <-c.manager.finish:
+		c.questions.pop(q.id)
+		return nil, c.manager.err()
+	}
+}
+
+func (c *Conn) newCallMessage(buf []byte, id questionID, ac *appCall) (rpccapnp.Message, error) {
+	msg := newMessage(buf)
+
+	if ac.kind == appBootstrapCall {
+		boot, _ := msg.NewBootstrap()
+		boot.SetQuestionId(uint32(id))
+		return msg, nil
+	}
+
+	msgCall, _ := msg.NewCall()
+	msgCall.SetQuestionId(uint32(id))
+	msgCall.SetInterfaceId(ac.Method.InterfaceID)
+	msgCall.SetMethodId(ac.Method.MethodID)
+
+	target, _ := msgCall.NewTarget()
+	switch ac.kind {
+	case appImportCall:
+		target.SetImportedCap(uint32(ac.importID))
+	case appPipelineCall:
+		a, err := target.NewPromisedAnswer()
+		if err != nil {
+			return rpccapnp.Message{}, err
+		}
+		a.SetQuestionId(uint32(ac.question.id))
+		err = transformToPromisedAnswer(a.Segment(), a, ac.transform)
+		if err != nil {
+			return rpccapnp.Message{}, err
+		}
+	default:
+		panic("unknown call type")
+	}
+
+	payload, _ := msgCall.NewParams()
+	params, err := ac.PlaceParams(payload.Segment())
+	if err != nil {
+		return rpccapnp.Message{}, err
 	}
 	if err := payload.SetContent(params); err != nil {
-		return err
+		return rpccapnp.Message{}, err
 	}
 	ctab, err := c.makeCapTable(payload.Segment())
 	if err != nil {
-		return err
+		return rpccapnp.Message{}, err
 	}
 	if err := payload.SetCapTable(ctab); err != nil {
-		return err
+		return rpccapnp.Message{}, err
 	}
-	return nil
+
+	return msg, nil
 }
 
 func transformToPromisedAnswer(s *capnp.Segment, answer rpccapnp.PromisedAnswer, transform []capnp.PipelineOp) error {
@@ -441,28 +355,49 @@ func transformToPromisedAnswer(s *capnp.Segment, answer rpccapnp.PromisedAnswer,
 	return err
 }
 
-// handleReturnMessage is to handle a received return message.
-// The caller is holding onto c.mu.
+// handleCancel is called from the coordinate goroutine to handle a question's cancelation.
+func (c *Conn) handleCancel(q *question) {
+	q.reject(questionCanceled, q.ctx.Err())
+	// TODO(light): timeout?
+	msg := newFinishMessage(nil, q.id, true /* release */)
+	c.sendMessage(msg)
+}
+
+// handleRelease is run in the coordinate goroutine to handle an import
+// client's release request.  It sends a release message for an import ID.
+func (c *Conn) handleRelease(id importID) error {
+	i := c.imports.pop(id)
+	if i == 0 {
+		return nil
+	}
+	// TODO(light): deadline to close?
+	msg := newMessage(nil)
+	mr, err := msg.NewRelease()
+	if err != nil {
+		return err
+	}
+	mr.SetId(uint32(id))
+	mr.SetReferenceCount(uint32(i))
+	return c.sendMessage(msg)
+}
+
+// handleReturnMessage is run in the coordinate goroutine.
 func (c *Conn) handleReturnMessage(m rpccapnp.Message) error {
 	ret, err := m.Return()
 	if err != nil {
 		return err
 	}
 	id := questionID(ret.AnswerId())
-	q := c.popQuestion(id)
+	q := c.questions.pop(id)
 	if q == nil {
 		return fmt.Errorf("received return for unknown question id=%d", id)
 	}
 	if ret.ReleaseParamCaps() {
-		for _, id := range q.paramCaps {
-			c.releaseExport(id, 1)
-		}
+		c.exports.releaseList(q.paramCaps)
 	}
-	q.mu.RLock()
-	qstate := q.state
-	q.mu.RUnlock()
-	if qstate == questionCanceled {
-		// We already sent the finish message.
+	if _, _, _, resolved := q.peek(); resolved {
+		// If the question was already resolved, that means it was canceled,
+		// in which case we already sent the finish message.
 		return nil
 	}
 	releaseResultCaps := true
@@ -485,7 +420,13 @@ func (c *Conn) handleReturnMessage(m rpccapnp.Message) error {
 		if err != nil {
 			return err
 		}
-		q.fulfill(content)
+		disembargoes := q.fulfill(content, c.embargoes.new)
+		for _, d := range disembargoes {
+			if err := c.sendMessage(d); err != nil {
+				// shutdown
+				return nil
+			}
+		}
 	case rpccapnp.Return_Which_exception:
 		exc, err := ret.Exception()
 		if err != nil {
@@ -500,15 +441,15 @@ func (c *Conn) handleReturnMessage(m rpccapnp.Message) error {
 		} else {
 			e = bootstrapError{e}
 		}
-		q.reject(e)
+		q.reject(questionResolved, e)
 	case rpccapnp.Return_Which_canceled:
 		err := &questionError{
 			id:     id,
 			method: q.method,
 			err:    fmt.Errorf("receiver reported canceled"),
 		}
-		c.errorf("%v", err)
-		q.reject(err)
+		log.Println(err)
+		q.reject(questionResolved, err)
 		return nil
 	default:
 		um := newUnimplementedMessage(nil, m)
@@ -543,36 +484,22 @@ func (c *Conn) populateMessageCapTable(payload rpccapnp.Payload) error {
 			msg.AddCap(nil)
 		case rpccapnp.CapDescriptor_Which_senderHosted:
 			id := importID(desc.SenderHosted())
-			client := c.addImport(id)
-			msg.AddCap(client)
-		case rpccapnp.CapDescriptor_Which_senderPromise:
-			// We do the same thing as senderHosted, above. @kentonv suggested this on
-			// issue #2; this let's messages be delivered properly, although it's a bit
-			// of a hack, and as Kenton describes, it has some disadvantages:
-			//
-			// > * Apps sometimes want to wait for promise resolution, and to find out if
-			// >   it resolved to an exception. You won't be able to provide that API. But,
-			// >   usually, it isn't needed.
-			// > * If the promise resolves to a capability hosted on the receiver,
-			// >   messages sent to it will uselessly round-trip over the network
-			// >   rather than being delivered locally.
-			id := importID(desc.SenderPromise())
-			client := c.addImport(id)
+			client := c.imports.addRef(id)
 			msg.AddCap(client)
 		case rpccapnp.CapDescriptor_Which_receiverHosted:
 			id := exportID(desc.ReceiverHosted())
-			e := c.findExport(id)
+			e := c.exports.get(id)
 			if e == nil {
 				return fmt.Errorf("rpc: capability table references unknown export ID %d", id)
 			}
-			msg.AddCap(e.rc.Ref())
+			msg.AddCap(e.client)
 		case rpccapnp.CapDescriptor_Which_receiverAnswer:
 			recvAns, err := desc.ReceiverAnswer()
 			if err != nil {
 				return err
 			}
 			id := answerID(recvAns.QuestionId())
-			a := c.answers[id]
+			a := c.answers.get(id)
 			if a == nil {
 				return fmt.Errorf("rpc: capability table references unknown answer ID %d", id)
 			}
@@ -583,7 +510,7 @@ func (c *Conn) populateMessageCapTable(payload rpccapnp.Payload) error {
 			transform := promisedAnswerOpsToTransform(recvTransform)
 			msg.AddCap(a.pipelineClient(transform))
 		default:
-			c.errorf("unknown capability type %v", desc.Which())
+			log.Println("rpc: unknown capability type", desc.Which())
 			return errUnimplemented
 		}
 	}
@@ -608,12 +535,10 @@ func (c *Conn) makeCapTable(s *capnp.Segment) (rpccapnp.CapDescriptor_List, erro
 	return t, nil
 }
 
-// handleBootstrapMessage handles a received bootstrap message.
-// The caller holds onto c.mu.
+// handleBootstrapMessage is run in the coordinate goroutine to handle
+// a received bootstrap message.
 func (c *Conn) handleBootstrapMessage(id answerID) error {
-	ctx, cancel := c.newContext()
-	defer cancel()
-	a := c.insertAnswer(id, cancel)
+	a := c.answers.insert(id, func() {})
 	if a == nil {
 		// Question ID reused, error out.
 		retmsg := newReturnMessage(nil, id)
@@ -621,24 +546,34 @@ func (c *Conn) handleBootstrapMessage(id answerID) error {
 		setReturnException(r, errQuestionReused)
 		return c.sendMessage(retmsg)
 	}
-	if c.mainFunc == nil {
-		return a.reject(errNoMainInterface)
-	}
-	main, err := c.mainFunc(ctx)
-	if err != nil {
-		return a.reject(errNoMainInterface)
+	msgs := make([]rpccapnp.Message, 0, 1)
+	if c.main == nil {
+		msgs = a.reject(msgs, errNoMainInterface)
+		for _, m := range msgs {
+			if err := c.sendMessage(m); err != nil {
+				return err
+			}
+		}
+		return nil
 	}
 	m := &capnp.Message{
 		Arena:    capnp.SingleSegment(make([]byte, 0)),
-		CapTable: []capnp.Client{main},
+		CapTable: []capnp.Client{c.main},
 	}
 	s, _ := m.Segment(0)
 	in := capnp.NewInterface(s, 0)
-	return a.fulfill(in.ToPtr())
+	msgs = a.fulfill(msgs, in.ToPtr(), c.makeCapTable)
+	for _, m := range msgs {
+		if err := c.sendMessage(m); err != nil {
+			return err
+		}
+	}
+	return nil
 }
 
-// handleCallMessage handles a received call message.  It mutates the
-// capability table of its parameter.  The caller holds onto c.mu.
+// handleCallMessage is run in the coordinate goroutine to handle a
+// received call message.  It mutates the capability table of its
+// parameter.
 func (c *Conn) handleCallMessage(m rpccapnp.Message) error {
 	mcall, err := m.Call()
 	if err != nil {
@@ -665,7 +600,7 @@ func (c *Conn) handleCallMessage(m rpccapnp.Message) error {
 	}
 	ctx, cancel := c.newContext()
 	id := answerID(mcall.QuestionId())
-	a := c.insertAnswer(id, cancel)
+	a := c.answers.insert(id, cancel)
 	if a == nil {
 		// Question ID reused, error out.
 		c.abort(errQuestionReused)
@@ -685,7 +620,13 @@ func (c *Conn) handleCallMessage(m rpccapnp.Message) error {
 		Params: paramContent.Struct(),
 	}
 	if err := c.routeCallMessage(a, mt, cl); err != nil {
-		return a.reject(err)
+		msgs := a.reject(nil, err)
+		for _, m := range msgs {
+			if err := c.sendMessage(m); err != nil {
+				return err
+			}
+		}
+		return nil
 	}
 	return nil
 }
@@ -694,11 +635,11 @@ func (c *Conn) routeCallMessage(result *answer, mt rpccapnp.MessageTarget, cl *c
 	switch mt.Which() {
 	case rpccapnp.MessageTarget_Which_importedCap:
 		id := exportID(mt.ImportedCap())
-		e := c.findExport(id)
+		e := c.exports.get(id)
 		if e == nil {
 			return errBadTarget
 		}
-		answer := c.lockedCall(e.client, cl)
+		answer := c.nestedCall(e.client, cl)
 		go joinAnswer(result, answer)
 	case rpccapnp.MessageTarget_Which_promisedAnswer:
 		mpromise, err := mt.PromisedAnswer()
@@ -710,7 +651,7 @@ func (c *Conn) routeCallMessage(result *answer, mt rpccapnp.MessageTarget, cl *c
 			// Grandfather paradox.
 			return errBadTarget
 		}
-		pa := c.answers[id]
+		pa := c.answers.get(id)
 		if pa == nil {
 			return errBadTarget
 		}
@@ -719,18 +660,15 @@ func (c *Conn) routeCallMessage(result *answer, mt rpccapnp.MessageTarget, cl *c
 			return err
 		}
 		transform := promisedAnswerOpsToTransform(mtrans)
-		pa.mu.Lock()
-		if pa.done {
-			obj, err := pa.obj, pa.err
-			pa.mu.Unlock()
+		if obj, err, done := pa.peek(); done {
 			client := clientFromResolution(transform, obj, err)
-			answer := c.lockedCall(client, cl)
+			answer := c.nestedCall(client, cl)
 			go joinAnswer(result, answer)
-		} else {
-			err = pa.queueCallLocked(cl, pcall{transform: transform, qcall: qcall{a: result}})
-			pa.mu.Unlock()
+			return nil
 		}
-		return err
+		if err := pa.queueCall(result, transform, cl); err != nil {
+			return err
+		}
 	default:
 		panic("unreachable")
 	}
@@ -757,7 +695,7 @@ func (c *Conn) handleDisembargoMessage(msg rpccapnp.Message) error {
 			return err
 		}
 		aid := answerID(dpa.QuestionId())
-		a := c.answers[aid]
+		a := c.answers.get(aid)
 		if a == nil {
 			return errDisembargoMissingAnswer
 		}
@@ -781,7 +719,7 @@ func (c *Conn) handleDisembargoMessage(msg rpccapnp.Message) error {
 		}
 	case rpccapnp.Disembargo_context_Which_receiverLoopback:
 		id := embargoID(d.Context().ReceiverLoopback())
-		c.disembargo(id)
+		c.embargoes.disembargo(id)
 	default:
 		um := newUnimplementedMessage(nil, msg)
 		c.sendMessage(um)
@@ -806,7 +744,7 @@ func newDisembargoMessage(buf []byte, which rpccapnp.Disembargo_context_Which, i
 
 // newContext creates a new context for a local call.
 func (c *Conn) newContext() (context.Context, context.CancelFunc) {
-	return context.WithCancel(c.bg)
+	return context.WithCancel(c.manager.context())
 }
 
 func promisedAnswerOpsToTransform(list rpccapnp.PromisedAnswer_Op_List) []capnp.PipelineOp {
@@ -824,6 +762,44 @@ func promisedAnswerOpsToTransform(list rpccapnp.PromisedAnswer_Op_List) []capnp.
 		}
 	}
 	return transform
+}
+
+// handleReturn is called from the coordinate goroutine to send an
+// answer's return value over the transport.
+func (c *Conn) handleReturn(r *outgoingReturn) {
+	msgs := make([]rpccapnp.Message, 0, 32)
+	if r.err == nil {
+		msgs = r.a.fulfill(msgs, r.obj, c.makeCapTable)
+	} else {
+		msgs = r.a.reject(msgs, r.err)
+	}
+	for _, m := range msgs {
+		if err := c.sendMessage(m); err != nil {
+			return
+		}
+	}
+}
+
+func (c *Conn) handleQueueClose(qcc queueClientClose) {
+	msgs := make([]rpccapnp.Message, 0, 32)
+	msgs = qcc.qc.rejectQueue(msgs)
+	close(qcc.done)
+	for _, m := range msgs {
+		if err := c.sendMessage(m); err != nil {
+			return
+		}
+	}
+}
+
+func (c *Conn) sendMessage(msg rpccapnp.Message) error {
+	return sendMessage(&c.manager, c.out, msg)
+}
+
+func (c *Conn) abort(err error) {
+	// TODO(light): ensure that the message is sent before shutting down?
+	am := newAbortMessage(nil, err)
+	c.sendMessage(am)
+	c.manager.shutdown(err)
 }
 
 func newAbortMessage(buf []byte, err error) rpccapnp.Message {
@@ -877,37 +853,54 @@ func newMessage(buf []byte) rpccapnp.Message {
 	return m
 }
 
-// chanMutex is a mutex backed by a channel so that it can be used in a select.
-// A receive is a lock and a send is an unlock.
-type chanMutex chan struct{}
+// An appCall is a message sent to the coordinate goroutine to indicate
+// that the application code wants to initiate an outgoing call.
+type appCall struct {
+	*capnp.Call
+	kind  int
+	achan chan<- capnp.Answer
 
-type connState int
+	// Import calls
+	importID importID
 
+	// Pipeline calls
+	question  *question
+	transform []capnp.PipelineOp
+}
+
+func newAppImportCall(id importID, cl *capnp.Call) (*appCall, <-chan capnp.Answer) {
+	achan := make(chan capnp.Answer, 1)
+	return &appCall{
+		Call:     cl,
+		kind:     appImportCall,
+		achan:    achan,
+		importID: id,
+	}, achan
+}
+
+func newAppPipelineCall(q *question, transform []capnp.PipelineOp, cl *capnp.Call) (*appCall, <-chan capnp.Answer) {
+	achan := make(chan capnp.Answer, 1)
+	return &appCall{
+		Call:      cl,
+		kind:      appPipelineCall,
+		achan:     achan,
+		question:  q,
+		transform: transform,
+	}, achan
+}
+
+func newAppBootstrapCall(ctx context.Context) (*appCall, <-chan capnp.Answer) {
+	achan := make(chan capnp.Answer, 1)
+	return &appCall{
+		Call:  &capnp.Call{Ctx: ctx},
+		kind:  appBootstrapCall,
+		achan: achan,
+	}, achan
+}
+
+// Kinds of application calls.
 const (
-	connAlive connState = iota
-	connDying
-	connDead
+	appImportCall = iota
+	appPipelineCall
+	appBootstrapCall
 )
-
-func newChanMutex() chanMutex {
-	mu := make(chanMutex, 1)
-	mu <- struct{}{}
-	return mu
-}
-
-func (mu chanMutex) Lock() {
-	<-mu
-}
-
-func (mu chanMutex) TryLock(ctx context.Context) error {
-	select {
-	case <-mu:
-		return nil
-	case <-ctx.Done():
-		return ctx.Err()
-	}
-}
-
-func (mu chanMutex) Unlock() {
-	mu <- struct{}{}
-}

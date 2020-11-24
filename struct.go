@@ -40,9 +40,7 @@ func NewRootStruct(s *Segment, sz ObjectSize) (Struct, error) {
 	return st, nil
 }
 
-// ToStruct converts p to a Struct.
-//
-// Deprecated: Use Ptr.Struct.
+// ToStruct is deprecated in favor of Ptr.Struct.
 func ToStruct(p Pointer) Struct {
 	if !IsValid(p) {
 		return Struct{}
@@ -54,10 +52,7 @@ func ToStruct(p Pointer) Struct {
 	return s
 }
 
-// ToStructDefault attempts to convert p into a struct, reading the
-// default value from def if p is not a struct.
-//
-// Deprecated: Use Ptr.StructDefault.
+// ToStructDefault is deprecated in favor of Ptr.StructDefault.
 func ToStructDefault(p Pointer, def []byte) (Struct, error) {
 	return toPtr(p).StructDefault(def)
 }
@@ -84,16 +79,8 @@ func (p Struct) IsValid() bool {
 }
 
 // Address returns the address the pointer references.
-//
-// Deprecated: The return value is not well-defined.  Use SamePtr if you
-// need to check whether two pointers refer to the same object.
 func (p Struct) Address() Address {
 	return p.off
-}
-
-// Size returns the size of the struct.
-func (p Struct) Size() ObjectSize {
-	return p.size
 }
 
 // HasData reports whether the struct has a non-zero size.
@@ -110,13 +97,17 @@ func (p Struct) readSize() Size {
 	return p.size.totalSize()
 }
 
+// value returns a raw struct pointer.
+func (p Struct) value(paddr Address) rawPointer {
+	off := makePointerOffset(paddr, p.off)
+	return rawStructPointer(off, p.size)
+}
+
 func (p Struct) underlying() Pointer {
 	return p
 }
 
-// Pointer returns the i'th pointer in the struct.
-//
-// Deprecated: Use Ptr.
+// Pointer is deprecated in favor of Ptr.
 func (p Struct) Pointer(i uint16) (Pointer, error) {
 	pp, err := p.Ptr(i)
 	return pp.toPointer(), err
@@ -130,9 +121,7 @@ func (p Struct) Ptr(i uint16) (Ptr, error) {
 	return p.seg.readPtr(p.pointerAddress(i), p.depthLimit)
 }
 
-// SetPointer sets the i'th pointer in the struct to src.
-//
-// Deprecated: Use SetPtr.
+// SetPointer is deprecated in favor of SetPtr.
 func (p Struct) SetPointer(i uint16, src Pointer) error {
 	return p.SetPtr(i, toPtr(src))
 }
@@ -142,48 +131,7 @@ func (p Struct) SetPtr(i uint16, src Ptr) error {
 	if p.seg == nil || i >= p.size.PointerCount {
 		panic(errOutOfBounds)
 	}
-	return p.seg.writePtr(p.pointerAddress(i), src, false)
-}
-
-// SetText sets the i'th pointer to a newly allocated text or null if v is empty.
-func (p Struct) SetText(i uint16, v string) error {
-	if v == "" {
-		return p.SetPtr(i, Ptr{})
-	}
-	return p.SetNewText(i, v)
-}
-
-// SetNewText sets the i'th pointer to a newly allocated text.
-func (p Struct) SetNewText(i uint16, v string) error {
-	t, err := NewText(p.seg, v)
-	if err != nil {
-		return err
-	}
-	return p.SetPtr(i, t.List.ToPtr())
-}
-
-// SetTextFromBytes sets the i'th pointer to a newly allocated text or null if v is nil.
-func (p Struct) SetTextFromBytes(i uint16, v []byte) error {
-	if v == nil {
-		return p.SetPtr(i, Ptr{})
-	}
-	t, err := NewTextFromBytes(p.seg, v)
-	if err != nil {
-		return err
-	}
-	return p.SetPtr(i, t.List.ToPtr())
-}
-
-// SetData sets the i'th pointer to a newly allocated data or null if v is nil.
-func (p Struct) SetData(i uint16, v []byte) error {
-	if v == nil {
-		return p.SetPtr(i, Ptr{})
-	}
-	d, err := NewData(p.seg, v)
-	if err != nil {
-		return err
-	}
-	return p.SetPtr(i, d.List.ToPtr())
+	return p.seg.writePtr(copyContext{}, p.pointerAddress(i), src)
 }
 
 func (p Struct) pointerAddress(i uint16) Address {
@@ -310,7 +258,7 @@ const (
 )
 
 // copyStruct makes a deep copy of src into dst.
-func copyStruct(dst, src Struct) error {
+func copyStruct(cc copyContext, dst, src Struct) error {
 	if dst.seg == nil {
 		return nil
 	}
@@ -347,11 +295,11 @@ func copyStruct(dst, src Struct) error {
 	for j := uint16(0); j < numSrcPtrs && j < numDstPtrs; j++ {
 		srcAddr, _ := srcPtrSect.element(int32(j), wordSize)
 		dstAddr, _ := dstPtrSect.element(int32(j), wordSize)
-		m, err := src.seg.readPtr(srcAddr, src.depthLimit)
+		m, err := src.seg.readPtr(srcAddr, maxDepth) // copy already handles depth-limiting
 		if err != nil {
 			return err
 		}
-		err = dst.seg.writePtr(dstAddr, m, true)
+		err = dst.seg.writePtr(cc.incDepth(), dstAddr, m)
 		if err != nil {
 			return err
 		}

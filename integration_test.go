@@ -4,16 +4,15 @@ import (
 	"bytes"
 	"encoding/hex"
 	"errors"
-	"io"
 	"math/rand"
 	"reflect"
 	"testing"
 	"time"
 	"unsafe"
 
-	"github.com/iguazio/go-capnproto2"
-	air "github.com/iguazio/go-capnproto2/internal/aircraftlib"
-	"github.com/iguazio/go-capnproto2/internal/capnptool"
+	"zombiezen.com/go/capnproto2"
+	air "zombiezen.com/go/capnproto2/internal/aircraftlib"
+	"zombiezen.com/go/capnproto2/internal/capnptool"
 )
 
 // A marshalTest tests whether a message can be encoded then read by the
@@ -48,10 +47,9 @@ func makeMarshalTests(t *testing.T) []marshalTest {
 			typ:  "Z",
 			text: `(zdata = (data = "\x00\x01\x02\x03\x04\x05\x06\a\b\t\n\v\f\r\x0e\x0f\x10\x11\x12\x13"))` + "\n",
 			data: []byte{
-				0, 0, 0, 0, 9, 0, 0, 0,
-				0, 0, 0, 0, 3, 0, 1, 0,
+				0, 0, 0, 0, 8, 0, 0, 0,
+				0, 0, 0, 0, 2, 0, 1, 0,
 				28, 0, 0, 0, 0, 0, 0, 0,
-				0, 0, 0, 0, 0, 0, 0, 0,
 				0, 0, 0, 0, 0, 0, 0, 0,
 				0, 0, 0, 0, 0, 0, 1, 0,
 				1, 0, 0, 0, 162, 0, 0, 0,
@@ -285,8 +283,8 @@ func makeMarshalTests(t *testing.T) []marshalTest {
 				0, 0, 0, 0, 0, 0, 0, 0,
 				9, 0, 0, 0, 34, 0, 0, 0,
 				0, 0, 0, 0, 0, 0, 0, 0,
-				'a', 'b', 'c', 0, 0, 0, 0, 0,
-				'x', 'y', 'z', 0, 0, 0, 0, 0,
+				97, 98, 99, 0, 0, 0, 0, 0,
+				120, 121, 122, 0, 0, 0, 0, 0,
 			},
 		})
 	}
@@ -325,11 +323,10 @@ func makeMarshalTests(t *testing.T) []marshalTest {
 			typ:  "Bag",
 			text: "(counter = (size = 9))\n",
 			data: []byte{
-				0, 0, 0, 0, 6, 0, 0, 0,
+				0, 0, 0, 0, 5, 0, 0, 0,
 				0, 0, 0, 0, 0, 0, 1, 0,
-				0, 0, 0, 0, 1, 0, 3, 0,
+				0, 0, 0, 0, 1, 0, 2, 0,
 				9, 0, 0, 0, 0, 0, 0, 0,
-				0, 0, 0, 0, 0, 0, 0, 0,
 				0, 0, 0, 0, 0, 0, 0, 0,
 				0, 0, 0, 0, 0, 0, 0, 0,
 			},
@@ -373,14 +370,13 @@ func makeMarshalTests(t *testing.T) []marshalTest {
 			typ:  "Bag",
 			text: "(counter = (size = 9, words = \"hello\"))\n",
 			data: []byte{
-				0, 0, 0, 0, 7, 0, 0, 0,
+				0, 0, 0, 0, 6, 0, 0, 0,
 				0, 0, 0, 0, 0, 0, 1, 0,
-				0, 0, 0, 0, 1, 0, 3, 0,
+				0, 0, 0, 0, 1, 0, 2, 0,
 				9, 0, 0, 0, 0, 0, 0, 0,
-				9, 0, 0, 0, 50, 0, 0, 0,
+				5, 0, 0, 0, 50, 0, 0, 0,
 				0, 0, 0, 0, 0, 0, 0, 0,
-				0, 0, 0, 0, 0, 0, 0, 0,
-				'h', 'e', 'l', 'l', 'o', 0, 0, 0,
+				104, 101, 108, 108, 111, 0, 0, 0,
 			},
 		})
 	}
@@ -429,17 +425,16 @@ func makeMarshalTests(t *testing.T) []marshalTest {
 			typ:  "Bag",
 			text: "(counter = (size = 9, wordlist = [\"hello\", \"bye\"]))\n",
 			data: []byte{
-				0, 0, 0, 0, 10, 0, 0, 0,
+				0, 0, 0, 0, 9, 0, 0, 0,
 				0, 0, 0, 0, 0, 0, 1, 0,
-				0, 0, 0, 0, 1, 0, 3, 0,
+				0, 0, 0, 0, 1, 0, 2, 0,
 				9, 0, 0, 0, 0, 0, 0, 0,
 				0, 0, 0, 0, 0, 0, 0, 0,
-				5, 0, 0, 0, 22, 0, 0, 0,
-				0, 0, 0, 0, 0, 0, 0, 0,
+				1, 0, 0, 0, 22, 0, 0, 0,
 				5, 0, 0, 0, 50, 0, 0, 0,
 				5, 0, 0, 0, 34, 0, 0, 0,
-				'h', 'e', 'l', 'l', 'o', 0, 0, 0,
-				'b', 'y', 'e', 0, 0, 0, 0, 0,
+				104, 101, 108, 108, 111, 0, 0, 0,
+				98, 121, 101, 0, 0, 0, 0, 0,
 			},
 		})
 	}
@@ -491,70 +486,17 @@ func makeMarshalTests(t *testing.T) []marshalTest {
 			typ:  "Bag",
 			text: "(counter = (size = 9, words = \"abc\", wordlist = [\"hello\", \"byenow\"]))\n",
 			data: []byte{
-				0, 0, 0, 0, 11, 0, 0, 0,
+				0, 0, 0, 0, 10, 0, 0, 0,
 				0, 0, 0, 0, 0, 0, 1, 0,
-				0, 0, 0, 0, 1, 0, 3, 0,
+				0, 0, 0, 0, 1, 0, 2, 0,
 				9, 0, 0, 0, 0, 0, 0, 0,
-				9, 0, 0, 0, 34, 0, 0, 0,
-				9, 0, 0, 0, 22, 0, 0, 0,
-				0, 0, 0, 0, 0, 0, 0, 0,
+				5, 0, 0, 0, 34, 0, 0, 0,
+				5, 0, 0, 0, 22, 0, 0, 0,
 				97, 98, 99, 0, 0, 0, 0, 0,
 				5, 0, 0, 0, 50, 0, 0, 0,
 				5, 0, 0, 0, 58, 0, 0, 0,
-				'h', 'e', 'l', 'l', 'o', 0, 0, 0,
-				'b', 'y', 'e', 'n', 'o', 'w', 0, 0,
-			},
-		})
-	}
-
-	{
-		msg, seg, err := capnp.NewMessage(capnp.SingleSegment(nil))
-		if err != nil {
-			t.Fatal(err)
-		}
-		_, scratch, err := capnp.NewMessage(capnp.SingleSegment(nil))
-		if err != nil {
-			t.Fatal(err)
-		}
-
-		// in seg
-		segbag, err := air.NewRootBag(seg)
-		if err != nil {
-			t.Fatal(err)
-		}
-
-		// in scratch
-		xc, err := air.NewRootCounter(scratch)
-		if err != nil {
-			t.Fatal(err)
-		}
-		bl, err := xc.NewBitlist(3)
-		if err != nil {
-			t.Fatal(err)
-		}
-		bl.Set(0, true)
-		bl.Set(1, false)
-		bl.Set(2, true)
-
-		// copy from scratch to seg
-		if err = segbag.SetCounter(xc); err != nil {
-			t.Fatal(err)
-		}
-
-		tests = append(tests, marshalTest{
-			name: "copy struct with bit list between messages",
-			msg:  msg,
-			typ:  "Bag",
-			text: "(counter = (size = 0, bitlist = [true, false, true]))\n",
-			data: []byte{
-				0, 0, 0, 0, 7, 0, 0, 0,
-				0, 0, 0, 0, 0, 0, 1, 0,
-				0, 0, 0, 0, 1, 0, 3, 0,
-				0, 0, 0, 0, 0, 0, 0, 0,
-				0, 0, 0, 0, 0, 0, 0, 0,
-				0, 0, 0, 0, 0, 0, 0, 0,
-				1, 0, 0, 0, 25, 0, 0, 0,
-				5, 0, 0, 0, 0, 0, 0, 0,
+				104, 101, 108, 108, 111, 0, 0, 0,
+				98, 121, 101, 110, 111, 119, 0, 0,
 			},
 		})
 	}
@@ -902,10 +844,9 @@ func TestBitList_Decode(t *testing.T) {
 func TestZDataAccessors(t *testing.T) {
 	t.Parallel()
 	data := mustEncodeTestMessage(t, "Z", `(zdata = (data = "\x00\x01\x02\x03\x04\x05\x06\a\b\t\n\v\f\r\x0e\x0f\x10\x11\x12\x13"))`, []byte{
-		0, 0, 0, 0, 9, 0, 0, 0,
-		0, 0, 0, 0, 3, 0, 1, 0,
+		0, 0, 0, 0, 8, 0, 0, 0,
+		0, 0, 0, 0, 2, 0, 1, 0,
 		28, 0, 0, 0, 0, 0, 0, 0,
-		0, 0, 0, 0, 0, 0, 0, 0,
 		0, 0, 0, 0, 0, 0, 0, 0,
 		0, 0, 0, 0, 0, 0, 1, 0,
 		1, 0, 0, 0, 162, 0, 0, 0,
@@ -1912,93 +1853,6 @@ func BenchmarkUnmarshal_Reuse(b *testing.B) {
 	}
 }
 
-func BenchmarkDecode(b *testing.B) {
-	var buf bytes.Buffer
-
-	r := rand.New(rand.NewSource(12345))
-	enc := capnp.NewEncoder(&buf)
-	count := 10000
-
-	for i := 0; i < count; i++ {
-		a := generateA(r)
-		msg, seg, _ := capnp.NewMessage(capnp.SingleSegment(nil))
-		root, _ := air.NewRootBenchmarkA(seg)
-		a.fill(root)
-		enc.Encode(msg)
-	}
-
-	blob := buf.Bytes()
-
-	b.ReportAllocs()
-	b.SetBytes(int64(buf.Len()))
-	b.ResetTimer()
-
-	for i := 0; i < b.N; i++ {
-		dec := capnp.NewDecoder(bytes.NewReader(blob))
-
-		for {
-			msg, err := dec.Decode()
-
-			if err == io.EOF {
-				break
-			}
-
-			if err != nil {
-				b.Fatal(err)
-			}
-
-			_, err = air.ReadRootBenchmarkA(msg)
-			if err != nil {
-				b.Fatal(err)
-			}
-		}
-	}
-}
-
-func BenchmarkDecode_Reuse(b *testing.B) {
-	var buf bytes.Buffer
-
-	r := rand.New(rand.NewSource(12345))
-	enc := capnp.NewEncoder(&buf)
-	count := 10000
-
-	for i := 0; i < count; i++ {
-		a := generateA(r)
-		msg, seg, _ := capnp.NewMessage(capnp.SingleSegment(nil))
-		root, _ := air.NewRootBenchmarkA(seg)
-		a.fill(root)
-		enc.Encode(msg)
-	}
-
-	blob := buf.Bytes()
-
-	b.ReportAllocs()
-	b.SetBytes(int64(buf.Len()))
-	b.ResetTimer()
-
-	for i := 0; i < b.N; i++ {
-		dec := capnp.NewDecoder(bytes.NewReader(blob))
-		dec.ReuseBuffer()
-
-		for {
-			msg, err := dec.Decode()
-
-			if err == io.EOF {
-				break
-			}
-
-			if err != nil {
-				b.Fatal(err)
-			}
-
-			_, err = air.ReadRootBenchmarkA(msg)
-			if err != nil {
-				b.Fatal(err)
-			}
-		}
-	}
-}
-
 type testArena []byte
 
 func (ta testArena) NumSegments() int64 {
@@ -2137,260 +1991,4 @@ func TestPointerDepthDefenseAcrossStructsAndLists(t *testing.T) {
 	if err == nil {
 		t.Fatalf("deref %d did not fail as expected", limit)
 	}
-}
-
-func TestHasPointerInUnion(t *testing.T) {
-	t.Parallel()
-	_, seg, err := capnp.NewMessage(capnp.SingleSegment(nil))
-	if err != nil {
-		t.Fatal("NewMessage:", err)
-	}
-	craft, err := air.NewRootAircraft(seg)
-	if err != nil {
-		t.Fatal("NewRootAircraft:", err)
-	}
-	t.Log("NewB737")
-	_, err = craft.NewB737()
-	if err != nil {
-		t.Fatal("NewB737:", err)
-	}
-
-	// These pointers are at the same offset.
-	if !craft.HasB737() {
-		t.Errorf("HasB737 = false; want true")
-	}
-	if craft.HasA320() {
-		t.Errorf("HasA320 = true; want false")
-	}
-}
-
-func TestSetNilBlob(t *testing.T) {
-	t.Parallel()
-	_, seg, err := capnp.NewMessage(capnp.SingleSegment(nil))
-	if err != nil {
-		t.Fatal("NewMessage:", err)
-	}
-	z, err := air.NewRootZ(seg)
-	if err != nil {
-		t.Fatal("NewRootZ:", err)
-	}
-	if err := z.SetBlob(nil); err != nil {
-		t.Fatal("z.SetBlob(nil):", err)
-	}
-
-	if z.HasBlob() {
-		t.Error("z.HasBlob() = true; want false")
-	}
-	blob, err := z.Blob()
-	if err != nil {
-		t.Errorf("z.Blob(): %v", err)
-	}
-	if blob != nil {
-		t.Errorf("z.Blob() = %v; want nil", blob)
-	}
-}
-
-func TestSetEmptyText(t *testing.T) {
-	t.Parallel()
-	_, seg, err := capnp.NewMessage(capnp.SingleSegment(nil))
-	if err != nil {
-		t.Fatal("NewMessage:", err)
-	}
-	z, err := air.NewRootZ(seg)
-	if err != nil {
-		t.Fatal("NewRootZ:", err)
-	}
-	if err := z.SetText(""); err != nil {
-		t.Fatal("z.SetText(\"\"):", err)
-	}
-
-	if z.HasText() {
-		t.Error("z.HasText() = true; want false")
-	}
-	text, err := z.Text()
-	if err != nil {
-		t.Errorf("z.Text(): %v", err)
-	}
-	if text != "" {
-		t.Errorf("z.Text() = %q; want \"\"", text)
-	}
-	b, err := z.TextBytes()
-	if err != nil {
-		t.Errorf("z.TextBytes(): %v", err)
-	}
-	if b != nil {
-		t.Errorf("z.TextBytes() = %v; want nil", b)
-	}
-}
-
-func TestSetNilBlobWithDefault(t *testing.T) {
-	t.Parallel()
-	_, seg, err := capnp.NewMessage(capnp.SingleSegment(nil))
-	if err != nil {
-		t.Fatal("NewMessage:", err)
-	}
-	d, err := air.NewRootDefaults(seg)
-	if err != nil {
-		t.Fatal("NewRootDefaults:", err)
-	}
-	if err := d.SetData(nil); err != nil {
-		t.Fatal("d.SetData(nil):", err)
-	}
-
-	if !d.HasData() {
-		t.Error("d.HasData() = false; want true")
-	}
-	blob, err := d.Data()
-	if err != nil {
-		t.Errorf("d.Data(): %v", err)
-	}
-	if len(blob) != 0 {
-		t.Errorf("d.Data() = %v; want zero length", blob)
-	}
-	// Specifically not checking for nil.  Anything zero-length is appropriate here.
-}
-
-func TestSetEmptyTextWithDefault(t *testing.T) {
-	t.Parallel()
-	_, seg, err := capnp.NewMessage(capnp.SingleSegment(nil))
-	if err != nil {
-		t.Fatal("NewMessage:", err)
-	}
-	d, err := air.NewRootDefaults(seg)
-	if err != nil {
-		t.Fatal("NewRootDefaults:", err)
-	}
-	if err := d.SetText(""); err != nil {
-		t.Fatal("d.SetData(\"\"):", err)
-	}
-
-	if !d.HasText() {
-		t.Error("d.HasText() = false; want true")
-	}
-	text, err := d.Text()
-	if err != nil {
-		t.Errorf("d.Text(): %v", err)
-	}
-	if text != "" {
-		t.Errorf("d.Text() = %v; want zero length", text)
-	}
-	b, err := d.TextBytes()
-	if err != nil {
-		t.Errorf("d.TextBytes(): %v", err)
-	}
-	if len(b) != 0 {
-		t.Errorf("d.TextBytes() = %v; want zero length", b)
-	}
-}
-
-func TestFuzzedListOutOfBounds(t *testing.T) {
-	t.Parallel()
-	msg := &capnp.Message{
-		Arena: capnp.SingleSegment([]byte(
-			"\x00\x00\x00\x00\x03\x00\x01\x00\x0f\x000000000000" +
-				"000000000000\x01\x00\x00\x00\x13\x00\x00\x000\x00\x00\x00\x00\x00\x00\x00")),
-	}
-	z, err := air.ReadRootZ(msg)
-	if err != nil {
-		t.Fatal("ReadRootZ:", err)
-	}
-	if z.Which() != air.Z_Which_f64vec {
-		t.Fatalf("z.Which() = %v; want Z_Which_f64vec", z.Which())
-	}
-	v, err := z.F64vec()
-	if err != nil {
-		t.Fatal("z.F64vec:", err)
-	}
-	for i := 0; i < v.Len(); i++ {
-		// This should not crash.
-		t.Logf("v.At(%d); v.Len() = %d", i, v.Len())
-		v.At(i)
-	}
-}
-
-func benchmarkGrowth(b *testing.B, newArena func() capnp.Arena) {
-	const (
-		fieldValue = "1234567" // carefully chosen to be word-padded
-
-		rootMessageOverhead = 8 * 3 // root pointer, Document struct, composite list tag
-		perFieldOverhead    = 8 * 2 // Field struct, fieldValue + "\0"
-		numElements         = 64 * 1024
-		totalSize           = rootMessageOverhead + perFieldOverhead*numElements
-	)
-	b.SetBytes(totalSize)
-	b.ReportAllocs()
-	for i := 0; i < b.N; i++ {
-		_, seg, err := capnp.NewMessage(newArena())
-		if err != nil {
-			b.Fatal(err)
-		}
-		doc, err := air.NewRootAllocBenchmark(seg)
-		if err != nil {
-			b.Fatal(err)
-		}
-		d, err := doc.NewFields(numElements)
-		if err != nil {
-			b.Fatal(err)
-		}
-		for j := 0; j < numElements; j++ {
-			if err := d.At(j).SetStringValue(fieldValue); err != nil {
-				b.Fatal(err)
-			}
-		}
-	}
-}
-
-func BenchmarkGrowth_SingleSegment(b *testing.B) {
-	benchmarkGrowth(b, func() capnp.Arena { return capnp.SingleSegment(nil) })
-}
-
-func BenchmarkGrowth_MultiSegment(b *testing.B) {
-	benchmarkGrowth(b, func() capnp.Arena { return capnp.MultiSegment(nil) })
-}
-
-func benchmarkSmallMessage(b *testing.B, newArena func() capnp.Arena) {
-	const fieldValue = "1234567" // carefully chosen to be word-padded
-	b.SetBytes(8 * 9)
-	b.ReportAllocs()
-	for i := 0; i < b.N; i++ {
-		_, seg, err := capnp.NewMessage(newArena())
-		if err != nil {
-			b.Fatal(err)
-		}
-		root, err := capnp.NewRootStruct(seg, capnp.ObjectSize{PointerCount: 2})
-		if err != nil {
-			b.Fatal(err)
-		}
-
-		sub1, err := capnp.NewStruct(root.Segment(), capnp.ObjectSize{PointerCount: 1})
-		if err != nil {
-			b.Fatal(err)
-		}
-		if err := root.SetPtr(0, sub1.ToPtr()); err != nil {
-			b.Fatal(err)
-		}
-		text, err := capnp.NewText(sub1.Segment(), fieldValue)
-		if err != nil {
-			b.Fatal(err)
-		}
-		if err := sub1.SetPtr(0, text.ToPtr()); err != nil {
-			b.Fatal(err)
-		}
-
-		sub2, err := capnp.NewStruct(root.Segment(), capnp.ObjectSize{DataSize: 32})
-		if err != nil {
-			b.Fatal(err)
-		}
-		if err := root.SetPtr(0, sub2.ToPtr()); err != nil {
-			b.Fatal(err)
-		}
-	}
-}
-
-func BenchmarkSmallMessage_SingleSegment(b *testing.B) {
-	benchmarkSmallMessage(b, func() capnp.Arena { return capnp.SingleSegment(nil) })
-}
-
-func BenchmarkSmallMessage_MultiSegment(b *testing.B) {
-	benchmarkSmallMessage(b, func() capnp.Arena { return capnp.MultiSegment(nil) })
 }

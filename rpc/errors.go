@@ -4,8 +4,8 @@ import (
 	"errors"
 	"fmt"
 
-	"github.com/iguazio/go-capnproto2"
-	rpccapnp "github.com/iguazio/go-capnproto2/std/capnp/rpc"
+	"zombiezen.com/go/capnproto2"
+	rpccapnp "zombiezen.com/go/capnproto2/std/capnp/rpc"
 )
 
 // An Exception is a Cap'n Proto RPC error.
@@ -24,22 +24,6 @@ func (e Exception) Error() string {
 
 // An Abort is a hang-up by a remote vat.
 type Abort Exception
-
-func copyAbort(m rpccapnp.Message) (Abort, error) {
-	ma, err := m.Abort()
-	if err != nil {
-		return Abort{}, err
-	}
-	msg, _, _ := capnp.NewMessage(capnp.SingleSegment(nil))
-	if err := msg.SetRootPtr(ma.ToPtr()); err != nil {
-		return Abort{}, err
-	}
-	p, err := msg.RootPtr()
-	if err != nil {
-		return Abort{}, err
-	}
-	return Abort{rpccapnp.Exception{Struct: p.Struct()}}, nil
-}
 
 // Error returns the exception's reason.
 func (a Abort) Error() string {
@@ -77,6 +61,7 @@ var (
 	errNoMainInterface = errors.New("rpc: no bootstrap interface")
 	errBadTarget       = errors.New("rpc: target not found")
 	errShutdown        = errors.New("rpc: shutdown")
+	errCallCanceled    = errors.New("rpc: call canceled")
 	errUnimplemented   = errors.New("rpc: remote used unimplemented protocol feature")
 )
 

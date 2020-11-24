@@ -4,7 +4,7 @@ using Go = import "/go.capnp";
 
 @0xef12a34b9807e19c;
 $Go.package("testcapnp");
-$Go.import("github.com/iguazio/go-capnproto2/rpc/internal/testcapnp");
+$Go.import("zombiezen.com/go/capnproto2/rpc/internal/testcapnp");
 
 interface Handle {}
 
@@ -27,10 +27,6 @@ interface CallOrder {
 interface Echoer extends(CallOrder) {
   echo @0 (cap :CallOrder) -> (cap :CallOrder);
   # Just returns the input cap.
-}
-
-interface PingPong {
-  echoNum @0 (n :Int32) -> (n :Int32);
 }
 
 # Example interfaces

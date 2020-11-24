@@ -28,7 +28,7 @@ struct JsonValue {
     null @0 :Void;
     boolean @1 :Bool;
     number @2 :Float64;
-    string @3 :Text $Go.name("string_");
+    string @3 :Text;
     array @4 :List(JsonValue);
     object @5 :List(Field);
     # Standard JSON values.
@@ -58,4 +58,4 @@ struct JsonValue {
 }
 using Go = import "/go.capnp";
 $Go.package("json");
-$Go.import("github.com/iguazio/go-capnproto2/std/capnp/json");
+$Go.import("zombiezen.com/go/capnproto2/std/capnp/json");

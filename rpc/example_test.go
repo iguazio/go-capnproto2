@@ -5,9 +5,9 @@ import (
 	"net"
 
 	"golang.org/x/net/context"
-	"github.com/iguazio/go-capnproto2/rpc"
-	"github.com/iguazio/go-capnproto2/rpc/internal/testcapnp"
-	"github.com/iguazio/go-capnproto2/server"
+	"zombiezen.com/go/capnproto2/rpc"
+	"zombiezen.com/go/capnproto2/rpc/internal/testcapnp"
+	"zombiezen.com/go/capnproto2/server"
 )
 
 func Example() {

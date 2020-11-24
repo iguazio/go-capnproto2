@@ -4,6 +4,9 @@ TAGS
 *~
 *.swp
 
+# goland
+.idea
+
 # Bazel
 /bazel-bin
 /bazel-capnproto2

@@ -3,16 +3,16 @@ Package capnp is a Cap'n Proto library for Go.
 https://capnproto.org/
 
 Read the Getting Started guide for a tutorial on how to use this
-package. https://github.com/capnproto/go-capnproto2/wiki/Getting-Started
+package. https://github.com/zombiezen/go-capnproto2/wiki/Getting-Started
 
 Generating code
 
 capnpc-go provides the compiler backend for capnp.
 
 	# First, install capnpc-go to $PATH.
-	go install github.com/iguazio/go-capnproto2/capnpc-go
+	go install zombiezen.com/go/capnproto2/capnpc-go
 	# Then, generate Go files.
-	capnp compile -I$GOPATH/src/github.com/iguazio/go-capnproto2/std -ogo *.capnp
+	capnp compile -ogo *.capnp
 
 capnpc-go requires two annotations for all files: package and import.
 package is needed to know what package to place at the head of the
@@ -21,9 +21,9 @@ from another package.  import should be the fully qualified import path
 and is used to generate import statement from other packages and to
 detect when two types are in the same package.  For example:
 
-	using Go = import "/go.capnp";
+	using Go = import "zombiezen.com/go/capnproto2/go.capnp";
 	$Go.package("main");
-	$Go.import("github.com/iguazio/go-capnproto2/example");
+	$Go.import("zombiezen.com/go/capnproto2/example");
 
 For adding documentation comments to the generated code, there's the doc
 annotation. This annotation adds the comment to a struct, enum or field so
@@ -62,7 +62,7 @@ panic when any setter is called.
 
 In previous versions of this package, the Pointer interface was used
 instead of the Ptr struct.  This interface and functions that use it are
-now deprecated.  See https://github.com/capnproto/go-capnproto2/wiki/New-Ptr-Type
+now deprecated.  See https://github.com/zombiezen/go-capnproto2/wiki/New-Ptr-Type
 for details about this API change.
 
 Data accessors and setters (i.e. struct primitive fields and list
@@ -81,7 +81,7 @@ Structs
 
 For the following schema:
 
-struct Foo @0x8423424e9b01c0af {
+struct Foo {
   num @0 :UInt32;
   bar @1 :Foo;
 }
@@ -92,10 +92,6 @@ capnpc-go will generate:
 	// Member functions are provided to get/set members in the
 	// struct.
 	type Foo struct{ capnp.Struct }
-
-	// Foo_TypeID is the unique identifier for the type Foo.
-	// It remains the same across languages and schema changes.
-	const Foo_TypeID = 0x8423424e9b01c0af
 
 	// NewFoo creates a new orphaned Foo struct, preferring placement in
 	// s.  If there isn't enough space, then another segment in the
@@ -381,4 +377,4 @@ A note about message ordering: when implementing a server method, you
 are responsible for acknowledging delivery of a method call.  Failure to
 do so can cause deadlocks.  See the server.Ack function for more details.
 */
-package capnp // import "github.com/iguazio/go-capnproto2"
+package capnp // import "zombiezen.com/go/capnproto2"

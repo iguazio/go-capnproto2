@@ -5,12 +5,12 @@ import (
 	"testing"
 
 	"golang.org/x/net/context"
-	"github.com/iguazio/go-capnproto2"
-	"github.com/iguazio/go-capnproto2/rpc"
-	"github.com/iguazio/go-capnproto2/rpc/internal/logtransport"
-	"github.com/iguazio/go-capnproto2/rpc/internal/pipetransport"
-	"github.com/iguazio/go-capnproto2/rpc/internal/testcapnp"
-	"github.com/iguazio/go-capnproto2/server"
+	"zombiezen.com/go/capnproto2"
+	"zombiezen.com/go/capnproto2/rpc"
+	"zombiezen.com/go/capnproto2/rpc/internal/logtransport"
+	"zombiezen.com/go/capnproto2/rpc/internal/pipetransport"
+	"zombiezen.com/go/capnproto2/rpc/internal/testcapnp"
+	"zombiezen.com/go/capnproto2/server"
 )
 
 func TestRelease(t *testing.T) {
@@ -20,10 +20,9 @@ func TestRelease(t *testing.T) {
 	if *logMessages {
 		p = logtransport.New(nil, p)
 	}
-	log := testLogger{t}
-	c := rpc.NewConn(p, rpc.ConnLog(log))
+	c := rpc.NewConn(p)
 	hf := new(HandleFactory)
-	d := rpc.NewConn(q, rpc.MainInterface(testcapnp.HandleFactory_ServerToClient(hf).Client), rpc.ConnLog(log))
+	d := rpc.NewConn(q, rpc.MainInterface(testcapnp.HandleFactory_ServerToClient(hf).Client))
 	defer d.Wait()
 	defer c.Close()
 	client := testcapnp.HandleFactory{Client: c.Bootstrap(ctx)}
@@ -53,10 +52,9 @@ func TestReleaseAlias(t *testing.T) {
 	if *logMessages {
 		p = logtransport.New(nil, p)
 	}
-	log := testLogger{t}
-	c := rpc.NewConn(p, rpc.ConnLog(log))
+	c := rpc.NewConn(p)
 	hf := singletonHandleFactory()
-	d := rpc.NewConn(q, rpc.MainInterface(testcapnp.HandleFactory_ServerToClient(hf).Client), rpc.ConnLog(log))
+	d := rpc.NewConn(q, rpc.MainInterface(testcapnp.HandleFactory_ServerToClient(hf).Client))
 	defer d.Wait()
 	defer c.Close()
 	client := testcapnp.HandleFactory{Client: c.Bootstrap(ctx)}

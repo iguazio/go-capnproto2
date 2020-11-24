@@ -24,4 +24,3 @@ annotation name(struct, field, union, enum, enumerant, interface, method, param,
 # Used to rename the element in the generated code.
 
 $package("capnp");
-$import("github.com/iguazio/go-capnproto2");

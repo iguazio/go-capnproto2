@@ -6,7 +6,7 @@ import (
 	"runtime"
 	"sync"
 
-	"github.com/iguazio/go-capnproto2"
+	"zombiezen.com/go/capnproto2"
 )
 
 // A RefCount will close its underlying client once all its references are closed.
@@ -18,30 +18,20 @@ type RefCount struct {
 }
 
 // New creates a reference counter and the first client reference.
-func New(c capnp.Client) (rc *RefCount, ref1 capnp.Client) {
-	if rr, ok := c.(*Ref); ok {
-		return rr.rc, rr.rc.Ref()
-	}
-	rc = &RefCount{Client: c, refs: 1}
-	ref1 = rc.newRef()
+func New(c capnp.Client) (rc *RefCount, ref capnp.Client) {
+	rc = &RefCount{Client: c}
+	ref = rc.Ref()
 	return
 }
 
 // Ref makes a new client reference.
 func (rc *RefCount) Ref() capnp.Client {
+	// TODO(light): what if someone calls Ref() after refs hits zero?
 	rc.mu.Lock()
-	if rc.refs <= 0 {
-		rc.mu.Unlock()
-		return capnp.ErrorClient(errZeroRef)
-	}
 	rc.refs++
 	rc.mu.Unlock()
-	return rc.newRef()
-}
-
-func (rc *RefCount) newRef() *Ref {
-	r := &Ref{rc: rc}
-	runtime.SetFinalizer(r, (*Ref).Close)
+	r := &ref{rc: rc}
+	runtime.SetFinalizer(r, (*ref).Close)
 	return r
 }
 
@@ -49,13 +39,11 @@ func (rc *RefCount) call(cl *capnp.Call) capnp.Answer {
 	// We lock here so that we can prevent the client from being closed
 	// while we start the call.
 	rc.mu.Lock()
+	defer rc.mu.Unlock()
 	if rc.refs <= 0 {
-		rc.mu.Unlock()
 		return capnp.ErrorAnswer(errClosed)
 	}
-	ans := rc.Client.Call(cl)
-	rc.mu.Unlock()
-	return ans
+	return rc.Client.Call(cl)
 }
 
 // decref decreases the reference count by one, closing the Client if it reaches zero.
@@ -79,30 +67,22 @@ func (rc *RefCount) decref() error {
 	return nil
 }
 
-var (
-	errZeroRef = errors.New("rpc: Ref() called on zeroed refcount")
-	errClosed  = errors.New("rpc: Close() called on closed client")
-)
+var errClosed = errors.New("rpc: Close() called on closed client")
 
-// A Ref is a single reference to a client wrapped by RefCount.
-type Ref struct {
+type ref struct {
 	rc   *RefCount
 	once sync.Once
 }
 
-// Call makes a call on the underlying client.
-func (r *Ref) Call(cl *capnp.Call) capnp.Answer {
+func (r *ref) Call(cl *capnp.Call) capnp.Answer {
 	return r.rc.call(cl)
 }
 
-// Client returns the underlying client.
-func (r *Ref) Client() capnp.Client {
+func (r *ref) WrappedClient() capnp.Client {
 	return r.rc.Client
 }
 
-// Close decrements the reference count.  Close will be called on
-// finalization (i.e. garbage collection).
-func (r *Ref) Close() error {
+func (r *ref) Close() error {
 	var err error
 	closed := false
 	r.once.Do(func() {

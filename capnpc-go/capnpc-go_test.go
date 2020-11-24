@@ -8,13 +8,10 @@ import (
 	"io/ioutil"
 	"path/filepath"
 	"sort"
-	"strconv"
-	"strings"
 	"testing"
 
-	"github.com/iguazio/go-capnproto2"
-	"github.com/iguazio/go-capnproto2/encoding/text"
-	"github.com/iguazio/go-capnproto2/internal/schema"
+	"zombiezen.com/go/capnproto2"
+	"zombiezen.com/go/capnproto2/std/capnp/schema"
 )
 
 func readTestFile(name string) ([]byte, error) {
@@ -43,85 +40,25 @@ func mustReadGeneratorRequest(t *testing.T, name string) schema.CodeGeneratorReq
 	return req
 }
 
-func TestBuildNodeMap(t *testing.T) {
-	tests := []struct {
-		name      string
-		fileID    uint64
-		fileNodes []uint64
-	}{
-		{
-			name:   "go.capnp.out",
-			fileID: 0xd12a1c51fedd6c88,
-			fileNodes: []uint64{
-				0xbea97f1023792be0,
-				0xe130b601260e44b5,
-				0xc58ad6bd519f935e,
-				0xa574b41924caefc7,
-				0xc8768679ec52e012,
-				0xfa10659ae02f2093,
-				0xc2b96012172f8df1,
-			},
-		},
-		{
-			name:   "group.capnp.out",
-			fileID: 0x83c2b5818e83ab19,
-			fileNodes: []uint64{
-				0xd119fd352d8ea888, // the struct
-				0x822357857e5925d4, // the group
-			},
-		},
+func TestGoCapnpNodeMap(t *testing.T) {
+	req := mustReadGeneratorRequest(t, "go.capnp.out")
+	nodes, err := buildNodeMap(req)
+	if err != nil {
+		t.Error("buildNodeMap:", err)
 	}
-	for _, test := range tests {
-		data, err := readTestFile(test.name)
-		if err != nil {
-			t.Errorf("readTestFile(%q): %v", test.name, err)
-			continue
-		}
-		msg, err := capnp.Unmarshal(data)
-		if err != nil {
-			t.Errorf("Unmarshaling %s: %v", test.name, err)
-			continue
-		}
-		req, err := schema.ReadRootCodeGeneratorRequest(msg)
-		if err != nil {
-			t.Errorf("Reading code generator request %s: %v", test.name, err)
-			continue
-		}
-		nodes, err := buildNodeMap(req)
-		if err != nil {
-			t.Errorf("%s: buildNodeMap: %v", test.name, err)
-		}
-		f := nodes[test.fileID]
-		if f == nil {
-			t.Errorf("%s: node map is missing file node @%#x", test.name, test.fileID)
-			continue
-		}
-		if f.Id() != test.fileID {
-			t.Errorf("%s: node map has ID @%#x for lookup of @%#x", test.name, f.Id(), test.fileID)
-		}
-
-		// Test node.nodes collection
-		for _, id := range test.fileNodes {
-			found := false
-			for _, fn := range f.nodes {
-				if fn.Id() == id {
-					found = true
-					break
-				}
-			}
-			if !found {
-				t.Errorf("%s: missing @%#x from file nodes", test.name, id)
-			}
-		}
-		// Test map lookup
-		for _, k := range test.fileNodes {
-			n := nodes[k]
-			if n == nil {
-				t.Errorf("%s: missing @%#x from node map", test.name, k)
-			}
-			if n.Id() != k {
-				t.Errorf("%s: node map has ID @%#x for lookup of @%#x", test.name, n.Id(), k)
-			}
+	want := []uint64{
+		0xd12a1c51fedd6c88,
+		0xbea97f1023792be0,
+		0xe130b601260e44b5,
+		0xc58ad6bd519f935e,
+		0xa574b41924caefc7,
+		0xc8768679ec52e012,
+		0xfa10659ae02f2093,
+		0xc2b96012172f8df1,
+	}
+	for _, k := range want {
+		if nodes[k] == nil {
+			t.Errorf("missing @%#x from node map", k)
 		}
 	}
 }
@@ -149,7 +86,7 @@ func TestRemoteScope(t *testing.T) {
 			remoteName: "otherscopes.Foo",
 			remoteNew:  "otherscopes.NewFoo",
 			imports: []importSpec{
-				{name: "otherscopes", path: "github.com/iguazio/go-capnproto2/capnpc-go/testdata/otherscopes"},
+				{name: "otherscopes", path: "zombiezen.com/go/capnproto2/capnpc-go/testdata/otherscopes"},
 			},
 		},
 		{
@@ -164,7 +101,7 @@ func TestRemoteScope(t *testing.T) {
 			remoteName: "otherscopes.Foo_List",
 			remoteNew:  "otherscopes.NewFoo_List",
 			imports: []importSpec{
-				{name: "otherscopes", path: "github.com/iguazio/go-capnproto2/capnpc-go/testdata/otherscopes"},
+				{name: "otherscopes", path: "zombiezen.com/go/capnproto2/capnpc-go/testdata/otherscopes"},
 			},
 		},
 		{
@@ -173,7 +110,7 @@ func TestRemoteScope(t *testing.T) {
 			remoteName: "capnp.Int32List",
 			remoteNew:  "capnp.NewInt32List",
 			imports: []importSpec{
-				{name: "capnp", path: "github.com/iguazio/go-capnproto2"},
+				{name: "capnp", path: "zombiezen.com/go/capnproto2"},
 			},
 		},
 	}
@@ -288,58 +225,28 @@ func TestDefineConstNodes(t *testing.T) {
 		t.Fatalf("defineConstNodes rendered %v; want render of constants template", calls[0])
 	}
 	if !containsExactlyIDs(p.Consts, 0xda96e2255811b258) {
-		t.Errorf("defineConstNodes rendered Consts %s", nodeListString(p.Consts))
+		// TODO(#20): print nodes better
+		t.Errorf("defineConstNodes rendered Consts %v", p.Consts)
 	}
 	if !containsExactlyIDs(p.Vars, 0xe0a385c7be1fea4d) {
-		t.Errorf("defineConstNodes rendered Vars %s", nodeListString(p.Vars))
+		// TODO(#20): print nodes better
+		t.Errorf("defineConstNodes rendered Vars %v", p.Vars)
 	}
 }
 
 func TestDefineFile(t *testing.T) {
 	// Sanity check to make sure codegen produces parseable Go.
 
-	const iterations = 3
-
-	defaultOptions := genoptions{
-		promises:      true,
-		schemas:       true,
-		structStrings: true,
-	}
 	tests := []struct {
 		fileID uint64
 		fname  string
 		opts   genoptions
 	}{
-		{0x832bcc6686a26d56, "aircraft.capnp.out", defaultOptions},
-		{0x832bcc6686a26d56, "aircraft.capnp.out", genoptions{
-			promises:      false,
-			schemas:       false,
-			structStrings: false,
-		}},
-		{0x832bcc6686a26d56, "aircraft.capnp.out", genoptions{
-			promises:      true,
-			schemas:       false,
-			structStrings: false,
-		}},
-		{0x832bcc6686a26d56, "aircraft.capnp.out", genoptions{
-			promises:      false,
-			schemas:       true,
-			structStrings: false,
-		}},
-		{0x832bcc6686a26d56, "aircraft.capnp.out", genoptions{
-			promises:      true,
-			schemas:       true,
-			structStrings: false,
-		}},
-		{0x832bcc6686a26d56, "aircraft.capnp.out", genoptions{
-			promises:      false,
-			schemas:       true,
-			structStrings: true,
-		}},
-		{0x83c2b5818e83ab19, "group.capnp.out", defaultOptions},
-		{0xb312981b2552a250, "rpc.capnp.out", defaultOptions},
-		{0xd68755941d99d05e, "scopes.capnp.out", defaultOptions},
-		{0xecd50d792c3d9992, "util.capnp.out", defaultOptions},
+		{0x832bcc6686a26d56, "aircraft.capnp.out", genoptions{promises: true}},
+		{0x83c2b5818e83ab19, "group.capnp.out", genoptions{promises: true}},
+		{0xb312981b2552a250, "rpc.capnp.out", genoptions{promises: true}},
+		{0xd68755941d99d05e, "scopes.capnp.out", genoptions{promises: true}},
+		{0xecd50d792c3d9992, "util.capnp.out", genoptions{promises: true}},
 	}
 	for _, test := range tests {
 		data, err := readTestFile(test.fname)
@@ -364,49 +271,14 @@ func TestDefineFile(t *testing.T) {
 		}
 		g := newGenerator(test.fileID, nodes, test.opts)
 		if err := g.defineFile(); err != nil {
-			t.Errorf("defineFile %s %+v: %v", test.fname, test.opts, err)
+			t.Errorf("defineFile %s: %v", test.fname, err)
 			continue
 		}
 		src := g.generate()
 		if _, err := parser.ParseFile(token.NewFileSet(), test.fname+".go", src, 0); err != nil {
 			// TODO(light): log src
-			t.Errorf("generate %s %+v failed to parse: %v", test.fname, test.opts, err)
-		}
-
-		// Generation should be deterministic between runs.
-		for i := 0; i < iterations-1; i++ {
-			g := newGenerator(test.fileID, nodes, test.opts)
-			if err := g.defineFile(); err != nil {
-				t.Errorf("defineFile %s %+v [iteration %d]: %v", test.fname, test.opts, i+2, err)
-				continue
-			}
-			src2 := g.generate()
-			if !bytes.Equal(src, src2) {
-				t.Errorf("defineFile %s %+v [iteration %d] did not match iteration 1: non-deterministic", test.fname, test.opts, i+2)
-			}
-		}
-	}
-}
-
-func TestSchemaVarLiteral(t *testing.T) {
-	tests := []string{
-		"",
-		"foo",
-		"deadbeefdeadbeef",
-		"deadbeefdeadbeefdeadbeef",
-		"\x00\x00",
-		"\xff\xff",
-		"\n",
-		" ~\"\\",
-		"\xff\xff\x27\xa1\xe3\xf1",
-	}
-	for _, test := range tests {
-		got := schemaVarParams{schema: []byte(test)}.SchemaLiteral()
-		u, err := strconv.Unquote(strings.Replace(got, "\" +\n\t\"", "", -1))
-		if err != nil {
-			t.Errorf("schema literal of %q does not parse: %v\n\tproduced: %s", test, err, got)
-		} else if u != test {
-			t.Errorf("schema literal of %q != %s", test, got)
+			t.Errorf("generate %s failed to parse: %v", test.fname, err)
+			continue
 		}
 	}
 }
@@ -456,16 +328,16 @@ func containsExactlyIDs(nodes []*node, ids ...uint64) bool {
 	return true
 }
 
-func nodeListString(n []*node) string {
-	b := new(bytes.Buffer)
-	e := text.NewEncoder(b)
-	b.WriteByte('[')
-	for i, nn := range n {
-		if i > 0 {
-			b.WriteByte(' ')
-		}
-		e.Encode(0xe682ab4cf923a417, nn.Struct)
-	}
-	b.WriteByte(']')
-	return b.String()
+type uint64Slice []uint64
+
+func (a uint64Slice) Len() int {
+	return len(a)
+}
+
+func (a uint64Slice) Swap(i, j int) {
+	a[i], a[j] = a[j], a[i]
+}
+
+func (a uint64Slice) Less(i, j int) bool {
+	return a[i] < a[j]
 }

@@ -1,5 +1,4 @@
 func (s {{.Node.Name}}) {{.Field.Name|title}}() ({{.FieldType}}, error) {
-	{{template "_checktag" . -}}
 	p, err := s.Struct.Ptr({{.Field.Slot.Offset}})
 	{{if .Default.IsValid -}}
 	if err != nil {

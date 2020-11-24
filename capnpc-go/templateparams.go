@@ -1,9 +1,6 @@
 package main
 
-import (
-	"bytes"
-	"fmt"
-)
+import "fmt"
 
 type annotationParams struct {
 	G    *generator
@@ -34,10 +31,9 @@ func (p structTypesParams) IsBase() bool {
 	return p.Node == p.BaseNode
 }
 
-type baseStructFuncsParams struct {
-	G            *generator
-	Node         *node
-	StringMethod bool
+type newStructFuncParams struct {
+	G    *generator
+	Node *node
 }
 
 type structFuncsParams struct {
@@ -117,9 +113,8 @@ type structObjectFieldParams struct {
 }
 
 type structListParams struct {
-	G            *generator
-	Node         *node
-	StringMethod bool
+	G    *generator
+	Node *node
 }
 
 type structEnumsParams struct {
@@ -193,44 +188,4 @@ type listValueParams struct {
 	G     *generator
 	Typ   string
 	Value staticDataRef
-}
-
-type schemaVarParams struct {
-	G       *generator
-	FileID  uint64
-	NodeIDs []uint64
-	schema  []byte
-}
-
-func (p schemaVarParams) SchemaLiteral() string {
-	const width = 16
-	var out bytes.Buffer
-	out.WriteByte('"')
-	for i, b := range p.schema {
-		if i > 0 && i%width == 0 {
-			out.WriteString("\" +\n\t\"")
-		}
-		switch {
-		case b < ' ' || b > '~':
-			// unprintable
-			out.WriteString("\\x")
-			out.WriteByte(hexdigit(b >> 4))
-			out.WriteByte(hexdigit(b & 0xf))
-		case b == '"':
-			out.WriteString("\\\"")
-		case b == '\\':
-			out.WriteString("\\\\")
-		default:
-			out.WriteByte(b)
-		}
-	}
-	out.WriteByte('"')
-	return out.String()
-}
-
-func hexdigit(b byte) byte {
-	if b < 10 {
-		return b + '0'
-	}
-	return (b - 10) + 'a'
 }

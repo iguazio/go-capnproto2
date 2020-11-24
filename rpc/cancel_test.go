@@ -4,25 +4,24 @@ import (
 	"testing"
 
 	"golang.org/x/net/context"
-	"github.com/iguazio/go-capnproto2/rpc"
-	"github.com/iguazio/go-capnproto2/rpc/internal/logtransport"
-	"github.com/iguazio/go-capnproto2/rpc/internal/pipetransport"
-	"github.com/iguazio/go-capnproto2/rpc/internal/testcapnp"
-	"github.com/iguazio/go-capnproto2/server"
+	"zombiezen.com/go/capnproto2/rpc"
+	"zombiezen.com/go/capnproto2/rpc/internal/logtransport"
+	"zombiezen.com/go/capnproto2/rpc/internal/pipetransport"
+	"zombiezen.com/go/capnproto2/rpc/internal/testcapnp"
+	"zombiezen.com/go/capnproto2/server"
 )
 
 func TestCancel(t *testing.T) {
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
-	log := testLogger{t}
 	p, q := pipetransport.New()
 	if *logMessages {
 		p = logtransport.New(nil, p)
 	}
-	c := rpc.NewConn(p, rpc.ConnLog(log))
+	c := rpc.NewConn(p)
 	notify := make(chan struct{})
 	hanger := testcapnp.Hanger_ServerToClient(Hanger{notify: notify})
-	d := rpc.NewConn(q, rpc.MainInterface(hanger.Client), rpc.ConnLog(log))
+	d := rpc.NewConn(q, rpc.MainInterface(hanger.Client))
 	defer d.Wait()
 	defer c.Close()
 	client := testcapnp.Hanger{Client: c.Bootstrap(ctx)}

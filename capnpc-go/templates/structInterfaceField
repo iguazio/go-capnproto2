@@ -1,5 +1,4 @@
 func (s {{.Node.Name}}) {{.Field.Name|title}}() {{.FieldType}} {
-	{{template "_checktag" . -}}
 	p, _ := s.Struct.Ptr({{.Field.Slot.Offset}})
 	return {{.FieldType}}{Client: p.Interface().Client()}
 }

@@ -5,8 +5,8 @@ import (
 	"testing"
 
 	"golang.org/x/net/context"
-	air "github.com/iguazio/go-capnproto2/internal/aircraftlib"
-	. "github.com/iguazio/go-capnproto2/server"
+	air "zombiezen.com/go/capnproto2/internal/aircraftlib"
+	. "zombiezen.com/go/capnproto2/server"
 )
 
 type echoImpl struct{}
@@ -22,11 +22,6 @@ func (echoImpl) Echo(call air.Echo_echo) error {
 
 func TestServerCall(t *testing.T) {
 	echo := air.Echo_ServerToClient(echoImpl{})
-	defer func() {
-		if err := echo.Client.Close(); err != nil {
-			t.Error("Close:", err)
-		}
-	}()
 
 	result, err := echo.Echo(context.Background(), func(p air.Echo_echo_Params) error {
 		err := p.SetIn("foo")
@@ -67,19 +62,11 @@ func (seq *lockCallSeq) GetNumber(call air.CallSequence_getNumber) error {
 }
 
 func TestServerCallOrder(t *testing.T) {
-	seq := air.CallSequence_ServerToClient(new(callSeq))
-	testCallOrder(t, seq)
-	if err := seq.Client.Close(); err != nil {
-		t.Error("Close:", err)
-	}
+	testCallOrder(t, air.CallSequence_ServerToClient(new(callSeq)))
 }
 
 func TestServerCallOrderWithCustomLocks(t *testing.T) {
-	seq := air.CallSequence_ServerToClient(new(lockCallSeq))
-	testCallOrder(t, seq)
-	if err := seq.Client.Close(); err != nil {
-		t.Error("Close:", err)
-	}
+	testCallOrder(t, air.CallSequence_ServerToClient(new(lockCallSeq)))
 }
 
 func testCallOrder(t *testing.T, seq air.CallSequence) {

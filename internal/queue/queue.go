@@ -6,11 +6,9 @@ type Queue struct {
 	q     Interface
 	start int
 	n     int
-	cap   int
 }
 
-// New creates a new queue that starts with n elements.  The interface's
-// length must not change over the course of the queue's usage.
+// New creates a new queue that starts with n elements.
 func New(q Interface, n int) *Queue {
 	qq := new(Queue)
 	qq.Init(q, n)
@@ -20,51 +18,54 @@ func New(q Interface, n int) *Queue {
 // Init initializes a queue.  The old queue is untouched.
 func (q *Queue) Init(r Interface, n int) {
 	q.q = r
-	q.start = 0
-	q.n = n
-	q.cap = r.Len()
+	q.start, q.n = 0, n
 }
 
 // Len returns the length of the queue.  This is different from the
-// underlying interface's length, which is the queue's capacity.
+// underlying interface's length.
 func (q *Queue) Len() int {
 	return q.n
 }
 
-// Push reserves space for an element on the queue, returning its index.
-// If the queue is full, Push returns -1.
-func (q *Queue) Push() int {
-	if q.n >= q.cap {
-		return -1
-	}
-	i := (q.start + q.n) % q.cap
-	q.n++
-	return i
-}
-
-// Front returns the index of the front of the queue, or -1 if the queue is empty.
-func (q *Queue) Front() int {
-	if q.n == 0 {
-		return -1
-	}
-	return q.start
-}
-
-// Pop pops an element from the queue, returning whether it succeeded.
-func (q *Queue) Pop() bool {
-	if q.n == 0 {
+// Push pushes an element on the queue.  If the queue is full,
+// Push returns false.  If x is nil, Push panics.
+func (q *Queue) Push(x interface{}) bool {
+	n := q.q.Len()
+	if q.n >= n {
 		return false
 	}
-	q.q.Clear(q.start)
-	q.start = (q.start + 1) % q.cap
-	q.n--
+	i := (q.start + q.n) % n
+	q.q.Set(i, x)
+	q.n++
 	return true
+}
+
+// Peek returns the element at the front of the queue.
+// If the queue is empty, Peek panics.
+func (q *Queue) Peek() interface{} {
+	if q.n == 0 {
+		panic("Queue.Pop called on empty queue")
+	}
+	return q.q.At(q.start)
+}
+
+// Pop pops an element from the queue.
+// If the queue is empty, Pop panics.
+func (q *Queue) Pop() interface{} {
+	x := q.Peek()
+	q.q.Set(q.start, nil)
+	q.start = (q.start + 1) % q.q.Len()
+	q.n--
+	return x
 }
 
 // A type implementing Interface can be used to store elements in a Queue.
 type Interface interface {
 	// Len returns the number of elements available.
 	Len() int
-	// Clear removes the element at i.
-	Clear(i int)
+	// At returns the element at i.
+	At(i int) interface{}
+	// Set sets the element at i to x.
+	// If x is nil, that element should be cleared.
+	Set(i int, x interface{})
 }

@@ -5,8 +5,8 @@ import (
 	"io/ioutil"
 	"os"
 
-	"github.com/iguazio/go-capnproto2"
-	air "github.com/iguazio/go-capnproto2/internal/aircraftlib"
+	"zombiezen.com/go/capnproto2"
+	air "zombiezen.com/go/capnproto2/internal/aircraftlib"
 )
 
 func Example() {

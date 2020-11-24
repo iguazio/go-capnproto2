@@ -1,5 +1,5 @@
 // +build mktemplates
-// Build tag so that users who run `go get github.com/iguazio/go-capnproto2/...` don't install this command.
+// Build tag so that users who run `go get zombiezen.com/go/capnproto2/...` don't install this command.
 // cd internal/cmd/mktemplates && go build -tags=mktemplates
 
 // mktemplates is a command to regenerate capnpc-go/templates.go.
@@ -84,8 +84,6 @@ func generateGo(w io.Writer, args []string, ts []template) error {
 	}
 
 	// TODO(light): collect errors
-	fmt.Fprintln(w, "// Code generated from templates directory. DO NOT EDIT.")
-	fmt.Fprintln(w)
 	fmt.Fprintln(w, "//go:generate", strings.Join(args, " "))
 	fmt.Fprintln(w)
 	fmt.Fprintln(w, "package main")

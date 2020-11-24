@@ -4,11 +4,11 @@ import (
 	"testing"
 
 	"golang.org/x/net/context"
-	"github.com/iguazio/go-capnproto2/rpc"
-	"github.com/iguazio/go-capnproto2/rpc/internal/logtransport"
-	"github.com/iguazio/go-capnproto2/rpc/internal/pipetransport"
-	"github.com/iguazio/go-capnproto2/rpc/internal/testcapnp"
-	"github.com/iguazio/go-capnproto2/server"
+	"zombiezen.com/go/capnproto2/rpc"
+	"zombiezen.com/go/capnproto2/rpc/internal/logtransport"
+	"zombiezen.com/go/capnproto2/rpc/internal/pipetransport"
+	"zombiezen.com/go/capnproto2/rpc/internal/testcapnp"
+	"zombiezen.com/go/capnproto2/server"
 )
 
 func TestPromisedCapability(t *testing.T) {
@@ -18,11 +18,10 @@ func TestPromisedCapability(t *testing.T) {
 	if *logMessages {
 		p = logtransport.New(nil, p)
 	}
-	log := testLogger{t}
-	c := rpc.NewConn(p, rpc.ConnLog(log))
+	c := rpc.NewConn(p)
 	delay := make(chan struct{})
 	echoSrv := testcapnp.Echoer_ServerToClient(&DelayEchoer{delay: delay})
-	d := rpc.NewConn(q, rpc.MainInterface(echoSrv.Client), rpc.ConnLog(log))
+	d := rpc.NewConn(q, rpc.MainInterface(echoSrv.Client))
 	defer d.Wait()
 	defer c.Close()
 	client := testcapnp.Echoer{Client: c.Bootstrap(ctx)}

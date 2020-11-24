@@ -1,7 +1,6 @@
 package capnp
 
 // A Ptr is a reference to a Cap'n Proto struct, list, or interface.
-// The zero value is a null pointer.
 type Ptr struct {
 	seg        *Segment
 	off        Address
@@ -106,56 +105,22 @@ func (p Ptr) Interface() Interface {
 // Text attempts to convert p into Text, returning an empty string if
 // p is not a valid 1-byte list pointer.
 func (p Ptr) Text() string {
-	b, ok := p.text()
-	if !ok {
-		return ""
-	}
-	return string(b)
+	return p.TextDefault("")
 }
 
 // TextDefault attempts to convert p into Text, returning def if p is
 // not a valid 1-byte list pointer.
 func (p Ptr) TextDefault(def string) string {
-	b, ok := p.text()
-	if !ok {
+	if !isOneByteList(p) {
 		return def
 	}
-	return string(b)
-}
-
-// TextBytes attempts to convert p into Text, returning nil if p is not
-// a valid 1-byte list pointer.  It returns a slice directly into the
-// segment.
-func (p Ptr) TextBytes() []byte {
-	b, ok := p.text()
-	if !ok {
-		return nil
-	}
-	return b
-}
-
-// TextBytesDefault attempts to convert p into Text, returning def if p
-// is not a valid 1-byte list pointer.  It returns a slice directly into
-// the segment.
-func (p Ptr) TextBytesDefault(def string) []byte {
-	b, ok := p.text()
-	if !ok {
-		return []byte(def)
-	}
-	return b
-}
-
-func (p Ptr) text() (b []byte, ok bool) {
-	if !isOneByteList(p) {
-		return nil, false
-	}
 	l := p.List()
-	b = l.seg.slice(l.off, Size(l.length))
+	b := l.seg.slice(l.off, Size(l.length))
 	if len(b) == 0 || b[len(b)-1] != 0 {
 		// Text must be null-terminated.
-		return nil, false
+		return def
 	}
-	return b[:len(b)-1 : len(b)], true
+	return string(b[:len(b)-1])
 }
 
 // Data attempts to convert p into Data, returning nil if p is not a
@@ -212,15 +177,30 @@ func (p Ptr) Default(def []byte) (Ptr, error) {
 	return p, nil
 }
 
-// SamePtr reports whether p and q refer to the same object.
-func SamePtr(p, q Ptr) bool {
-	return p.seg == q.seg && p.off == q.off
+func (p Ptr) value(paddr Address) rawPointer {
+	switch p.flags.ptrType() {
+	case structPtrType:
+		return p.Struct().value(paddr)
+	case listPtrType:
+		return p.List().value(paddr)
+	case interfacePtrType:
+		return p.Interface().value(paddr)
+	}
+	return 0
 }
 
-// A value that implements Pointer is a reference to a Cap'n Proto object.
-//
-// Deprecated: Using this type introduces an unnecessary allocation.
-// Use Ptr instead.
+// address returns the pointer's address.  It panics if p is not a valid Struct or List.
+func (p Ptr) address() Address {
+	switch p.flags.ptrType() {
+	case structPtrType:
+		return p.Struct().Address()
+	case listPtrType:
+		return p.List().Address()
+	}
+	panic("ptr not a valid struct or list")
+}
+
+// Pointer is deprecated in favor of Ptr.
 type Pointer interface {
 	// Segment returns the segment this pointer points into.
 	// If nil, then this is an invalid pointer.
@@ -230,30 +210,25 @@ type Pointer interface {
 	// non-zero size.
 	HasData() bool
 
+	// value converts the pointer into a raw value.
+	value(paddr Address) rawPointer
+
 	// underlying returns a Pointer that is one of a Struct, a List, or an
 	// Interface.
 	underlying() Pointer
 }
 
-// IsValid reports whether p is valid.
-//
-// Deprecated: Use Ptr.IsValid instead.
+// IsValid is deprecated in favor of Ptr.IsValid.
 func IsValid(p Pointer) bool {
 	return p != nil && p.Segment() != nil
 }
 
-// HasData reports whether p has non-zero size.
-//
-// Deprecated: There are usually better ways to determine this
-// information: length of a list, checking fields, or using HasFoo
-// accessors.
+// HasData is deprecated.
 func HasData(p Pointer) bool {
 	return IsValid(p) && p.HasData()
 }
 
-// PointerDefault returns p if it is valid, otherwise it unmarshals def.
-//
-// Deprecated: Use Ptr.Default.
+// PointerDefault is deprecated in favor of Ptr.Default.
 func PointerDefault(p Pointer, def []byte) (Pointer, error) {
 	pp, err := toPtr(p).Default(def)
 	return pp.toPointer(), err

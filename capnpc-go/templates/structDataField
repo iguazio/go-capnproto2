@@ -1,5 +1,4 @@
 func (s {{.Node.Name}}) {{.Field.Name|title}}() ({{.FieldType}}, error) {
-	{{template "_checktag" . -}}
 	p, err := s.Struct.Ptr({{.Field.Slot.Offset}})
 	{{with .Default -}}
 	return {{$.FieldType}}(p.DataDefault({{printf "%#v" .}})), err
@@ -12,11 +11,10 @@ func (s {{.Node.Name}}) {{.Field.Name|title}}() ({{.FieldType}}, error) {
 
 func (s {{.Node.Name}}) Set{{.Field.Name|title}}(v {{.FieldType}}) error {
 	{{template "_settag" . -}}
-	{{if .Default -}}
-	if v == nil {
-		v = []byte{}
+	d, err := {{.G.Capnp}}.NewData(s.Struct.Segment(), []byte(v))
+	if err != nil {
+		return err
 	}
-	{{end -}}
-	return s.Struct.SetData({{.Field.Slot.Offset}}, v)
+	return s.Struct.SetPtr({{.Field.Slot.Offset}}, d.List.ToPtr())
 }
 

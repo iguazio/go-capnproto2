@@ -1,5 +1,4 @@
 func (s {{.Node.Name}}) {{.Field.Name|title}}() {{.ReturnType}} {
-	{{template "_checktag" . -}}
 	return {{.ReturnType}}(s.Struct.Uint{{.Bits}}({{.Offset}}){{with .Default}} ^ {{.}}{{end}})
 }
 

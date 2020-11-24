@@ -1,4 +1,4 @@
-#!/bin/bash
+#!/bin/sh -e
 
 infer_package_name() {
 	# Convert the filename $1 to a package name. We munge the name as follows:
@@ -15,12 +15,12 @@ gen_annotated_schema() {
 	# appropriate $Go annotations.
 	infile="$1"
 	outfile="$(basename $infile)"
-	cp "$infile" "$outfile" || return 1
+	cp "$infile" "$outfile"
 	package_name="$(infer_package_name $outfile)"
 	cat >> "$outfile" << EOF
 using Go = import "/go.capnp";
 \$Go.package("$package_name");
-\$Go.import("github.com/iguazio/go-capnproto2/std/capnp/$package_name");
+\$Go.import("zombiezen.com/go/capnproto2/std/capnp/$package_name");
 EOF
 }
 
@@ -29,7 +29,7 @@ gen_go_src() {
 	# directory if necessary.
 	file="$1"
 	package_name="$(infer_package_name $file)"
-	mkdir -p $package_name || return 1
+	[ -d $package_name ] || mkdir $package_name
 	capnp compile -I"$(dirname $PWD)" -ogo:$package_name $file
 }
 
@@ -46,13 +46,13 @@ usage() {
 do_import() {
 	input_dir="$1"
 	for file in $input_dir/*.capnp; do
-		gen_annotated_schema "$file" || return 1
+		gen_annotated_schema "$file"
 	done
 }
 
 do_compile() {
 	for file in *.capnp; do
-		gen_go_src "$file" || return 1
+		gen_go_src "$file"
 	done
 }
 

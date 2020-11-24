@@ -8,9 +8,9 @@ import (
 	"runtime"
 	"testing"
 
-	"github.com/iguazio/go-capnproto2"
-	air "github.com/iguazio/go-capnproto2/internal/aircraftlib"
-	"github.com/iguazio/go-capnproto2/internal/capnptool"
+	"zombiezen.com/go/capnproto2"
+	air "zombiezen.com/go/capnproto2/internal/aircraftlib"
+	"zombiezen.com/go/capnproto2/internal/capnptool"
 )
 
 const schemaPath = "internal/aircraftlib/aircraft.capnp"

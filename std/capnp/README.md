@@ -68,4 +68,4 @@ In addition to the upstream base schemas, we also ship a schema
 `/std/go.capnp`, which contains annotations used by `go-capnpc`. Its
 usage is described in the top-level README. The generated source is
 placed in the root of the repository, making it part of the go package
-`github.com/iguazio/go-capnproto2`.
+`zombiezen.com/go/capnproto2`.
