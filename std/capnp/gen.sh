@@ -20,7 +20,7 @@ gen_annotated_schema() {
 	cat >> "$outfile" << EOF
 using Go = import "/go.capnp";
 \$Go.package("$package_name");
-\$Go.import("zombiezen.com/go/capnproto2/std/capnp/$package_name");
+\$Go.import("github.com/iguazio/go-capnproto2/std/capnp/$package_name");
 EOF
 }
 

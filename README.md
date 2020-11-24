@@ -1,14 +1,14 @@
 # Cap'n Proto bindings for Go
 
 [![Build Status](https://travis-ci.org/zombiezen/go-capnproto2.svg?branch=master)](https://travis-ci.org/zombiezen/go-capnproto2)
-[![GoDoc](https://godoc.org/zombiezen.com/go/capnproto2?status.svg)][godoc]
+[![GoDoc](https://godoc.org/github.com/iguazio/go-capnproto2?status.svg)][godoc]
 
 go-capnproto consists of:
 - a Go code generator for [Cap'n Proto][capnproto]
 - a Go package that provides runtime support
 - a Go package that implements Level 1 of the RPC protocol
 
-[godoc]: https://godoc.org/zombiezen.com/go/capnproto2
+[godoc]: https://godoc.org/github.com/iguazio/go-capnproto2
 [capnproto]: https://capnproto.org/
 
 ## Getting started

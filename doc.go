@@ -10,7 +10,7 @@ Generating code
 capnpc-go provides the compiler backend for capnp.
 
 	# First, install capnpc-go to $PATH.
-	go install zombiezen.com/go/capnproto2/capnpc-go
+	go install github.com/iguazio/go-capnproto2/capnpc-go
 	# Then, generate Go files.
 	capnp compile -ogo *.capnp
 
